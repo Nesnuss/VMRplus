@@ -14,11 +14,11 @@ import http.client
 import urllib.error
 
 
-version = "1.0.0"
+version = "1.0.1"
 help = """
-VMR Program version """+version+""" - 4 Oct 2024
+VMR Program version """+version+""" - 26 May 2025
 Obtem codigos de acessos proteicos apartir de codigos de acessos nucleotidicos da tabela VMR
-(c) 2024. Rafael Santos da Silva & Arthur Gruber
+(c) 2025. Rafael Santos da Silva & Arthur Gruber
 
 Usage: VMR.py -i <tabela VMR> -o <tabela output>
 
@@ -56,17 +56,17 @@ def busca_entrez(nuc_acc):
             query_key = record['QueryKey']
 
             # Link para o banco de dados de proteínas
-            pesquisa_elink = Entrez.elink(dbfrom="nuccore", db='protein', query_key=query_key, webenv=webenv, linkname="nuccore_protein", timeout=30)
-            Resultado_elink = Entrez.read(pesquisa_elink)
+            search_elink = Entrez.elink(dbfrom="nuccore", db='protein', query_key=query_key, webenv=webenv, linkname="nuccore_protein", timeout=30)
+            result_elink = Entrez.read(search_elink)
             # print(Resultado_elink)
             # print(type(Resultado_elink[0].get("LinkSetDb", [{}])))
-            pesquisa_elink.close()
+            search_elink.close()
             protein_ids = []
 
-            if Resultado_elink[0].get("LinkSetDb", [{}]) == []:
+            if result_elink[0].get("LinkSetDb", [{}]) == []:
                 return protein_ids
             else:
-                for link in Resultado_elink[0].get("LinkSetDb", [{}])[0].get("Link", []):
+                for link in result_elink[0].get("LinkSetDb", [{}])[0].get("Link", []):
                     #print(link)
                     #print(Resultado_elink[0].get("LinkSetDb", [{}])[0].get("Link", []))
                     protein_ids.append(link.get("Id", ""))
@@ -99,20 +99,20 @@ def filtered_search(protein_ids, query_terms, negative_terms, min_len, max_len):
                 #print(search)
 
                 # Busca filtrada no banco de dados de proteínas
-                filtro = Entrez.esearch(db="protein", term=search, timeout=30)
-                resultado_filtro = Entrez.read(filtro)
+                search_with_filter = Entrez.esearch(db="protein", term=search, timeout=30)
+                filter_result = Entrez.read(search_with_filter)
                 #print(resultado_filtro)
-                filtro.close()
+                search_with_filter.close()
 
-                for id in resultado_filtro.get("IdList", []):
+                for id in filter_result.get("IdList", []):
                     filtered_ids.append(id)
                 
                 if not filtered_ids:
                     print("Nenhum ID filtrado encontrado. Pulando...")
                     return []
                 
-                with Entrez.efetch(db="protein", id=",".join(filtered_ids), rettype="gb", retmode="text", timeout=30) as pesquisa_efetch:
-                    response_data = pesquisa_efetch.read()
+                with Entrez.efetch(db="protein", id=",".join(filtered_ids), rettype="gb", retmode="text", timeout=30) as search_efetch:
+                    response_data = search_efetch.read()
 
                 seqio = SeqIO.parse(StringIO(response_data), "genbank")
                 extracted_ids = [record.id for record in seqio]
@@ -131,12 +131,12 @@ def cds_prot(protein_ids,path,nuc_acc):
 
     for attempt in range(3):
         try:
-            lista_fasta = []
+            fasta_list = []
             if os.path.exists(output_file):
                 print(f"O arquivo {output_file} já existe. Usando arquivo existente.")
                 return output_file
             elif protein_ids == []:
-                return lista_fasta
+                return fasta_list
             else:
                 
                 with Entrez.efetch(db="protein", id=",".join(protein_ids), rettype="fasta", retmode="text", timeout=30) as negative_result:
@@ -144,12 +144,12 @@ def cds_prot(protein_ids,path,nuc_acc):
                     negative_seqio = SeqIO.parse(StringIO(read_negative), "fasta")
                     
                     for seq_record in negative_seqio:
-                        lista_fasta.append(seq_record)
+                        fasta_list.append(seq_record)
 
                     with open(output_file, "w") as output_write:
-                        SeqIO.write(lista_fasta, output_write, "fasta")
+                        SeqIO.write(fasta_list, output_write, "fasta")
 
-                extracted_ids = [record.id for record in lista_fasta]
+                extracted_ids = [record.id for record in fasta_list]
                 print(f"IDs extraídos: {extracted_ids}")
                 #time.sleep(1) 
                 #return fasta_records  # Retorna os registros FASTA
@@ -161,15 +161,15 @@ def cds_prot(protein_ids,path,nuc_acc):
     return []
 
 # baixa os fastas de proteinas de uma familia 
-def refdb(name_protein, taxid, classe, path, pn, min_len, max_len):
+def refdb(name_protein, taxid, Class, path, protein_name, min_len, max_len):
 
     # Formata o nome do arquivo de saída
-    if len(pn) > 1: 
-        names = f'{pn[0]}_{pn[1]}' 
+    if len(protein_name) > 1: 
+        names = f'{protein_name[0]}_{protein_name[1]}' 
     else:    
-        names = f'{pn[0]}'
+        names = f'{protein_name[0]}'
     
-    output_file = f"{path}/{classe}_{names}.fasta"
+    output_file = f"{path}/{Class}_{names}.fasta"
 
     # Verifica se o arquivo já existe
     if os.path.exists(output_file):
@@ -197,8 +197,8 @@ def refdb(name_protein, taxid, classe, path, pn, min_len, max_len):
         # print(type(id))
         for attempt in range(3):
             try:
-                with Entrez.efetch(db="ipg", id=id, rettype="fasta", retmode="text", timeout=30) as pesquisa_efetch:
-                    response_data = pesquisa_efetch.read()
+                with Entrez.efetch(db="ipg", id=id, rettype="fasta", retmode="text", timeout=30) as search_efetch:
+                    response_data = search_efetch.read()
                     seqio = SeqIO.parse(StringIO(response_data.decode('utf-8')), "fasta") 
                     #time.sleep(1)        
                 for seq_record in seqio:
@@ -259,8 +259,8 @@ def blast_plus(database_fasta,genome):
             
             protein = None
             if os.path.exists(result_file):
-                with open(result_file, "r") as leitura:
-                    lines = leitura.readlines()
+                with open(result_file, "r") as read:
+                    lines = read.readlines()
                     if lines:  # Verifica se há linhas no arquivo
                         protein = lines[0].strip()
                         print(f"Proteína encontrada: {protein}")
@@ -345,72 +345,72 @@ def make_blast_db(database_fasta,genome):
             ]
             auxiliary(makeblastdb_cmd)
 
-def marker_fasta(arquivo, palavra_chave, path, genus, family):
+def marker_fasta(fasta_file, keyword, path, genus, family):
 
     output_file = f"{path}/{genus}.fasta"
     allmarker_file = f"{path}/{family}.fasta"
 
     try:
         # Verifica se o arquivo test.fasta já existe
-        if palavra_chave == []:
+        if keyword == []:
             print(f'a palavra-chave é uma lista vazia')
             return
         
-        sequencia = ""
-        encontrado = False
+        sequence = ""
+        found = False
         
-        with open(arquivo, 'r', encoding='utf-8') as f:
-            linhas = f.readlines()
+        with open(fasta_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
             
-            for linha in linhas:
-                if linha.startswith('>'):
-                    if encontrado:
+            for line in lines:
+                if line.startswith('>'):
+                    if found:
                         break
                     
-                    if palavra_chave in linha:
-                        encontrado = True  
-                        sequencia += linha # Mantém a linha original para test.fasta
-                elif encontrado:
-                    sequencia += linha
+                    if keyword in line:
+                        found = True  
+                        sequence += line # Mantém a linha original para test.fasta
+                elif found:
+                    sequence += line
         
-        if encontrado:
+        if found:
             if os.path.exists(output_file):
-                with open(output_file, 'r', encoding='utf-8') as genero_fasta:
-                    conteudo_genero = genero_fasta.read()
-                    if palavra_chave in conteudo_genero:
-                        print(f'Sequência: {palavra_chave}, já existente em {genero}.fasta')
+                with open(output_file, 'r', encoding='utf-8') as fasta_genus:
+                    info_genus = fasta_genus.read()
+                    if keyword in info_genus:
+                        print(f'Sequência: {keyword}, já existente em {genus}.fasta')
                     else:
                         with open(output_file, 'a', encoding='utf-8') as out:
-                            out.write(sequencia)
+                            out.write(sequence)
             else:
                 with open(output_file, "w") as out:
-                    out.write(sequencia)
+                    out.write(sequence)
             
             # Escreve a sequência encontrada em Baculoviridae.fasta com o prefixo
-            linhas_baculoviridae = sequencia.strip().splitlines()
-            for i, linha in enumerate(linhas_baculoviridae):
-                if linha.startswith('>'):
-                    linhas_baculoviridae[i] = linha.replace('>', f'>{genus}_')
+            line_sequence = sequence.strip().splitlines()
+            for i, line in enumerate(line_sequence):
+                if line.startswith('>'):
+                    line_sequence[i] = line.replace('>', f'>{genus}_')
             
             # Verifica se Baculoviridae.fasta já existe
             if os.path.exists(allmarker_file):
                 with open(allmarker_file, 'r', encoding='utf-8') as f:
-                    conteudo = f.read()
-                    if linhas_baculoviridae[i] in conteudo:
-                        print(f'Sequência: {linhas_baculoviridae}, já existente em {family}.fasta')
+                    information = f.read()
+                    if line_sequence[i] in information:
+                        print(f'Sequência: {line_sequence}, já existente em {family}.fasta')
                     else:
                         with open(allmarker_file, 'a', encoding='utf-8') as out:
-                            out.write("\n" + "\n".join(linhas_baculoviridae))
+                            out.write("\n" + "\n".join(line_sequence))
             else:
                 with open(allmarker_file, "w") as out:
-                    out.write("\n".join(linhas_baculoviridae))
+                    out.write("\n".join(line_sequence))
             
-            print(f'Sequência encontrada para "{palavra_chave}":\n{sequencia.strip()}')
+            print(f'Sequência encontrada para "{keyword}":\n{sequence.strip()}')
         else:
-            print(f'A palavra-chave "{palavra_chave}" não foi encontrada no arquivo.')
+            print(f'A palavra-chave "{keyword}" não foi encontrada no arquivo.')
     
     except FileNotFoundError:
-        print(f'O arquivo "{arquivo}" não foi encontrado.')
+        print(f'O arquivo "{fasta_file}" não foi encontrado.')
     except Exception as e:
         print(f'Ocorreu um erro marker_fasta: {e}')
 
@@ -428,122 +428,122 @@ VMR Program version """+version+""" - 04 Oct 2024
 (c) 2024. Rafael Santos da Silva & Arthur Gruber
 """)
     else:
-        inicio_tempo = time.perf_counter()
+        start_time = time.perf_counter()
         # Seleciona os arquivos que seram ultilizados
         print("Lendo os dados...")
-        tabelaX = pd.DataFrame(pd.read_csv(args.i, delimiter=';'))
-        tabelaY = pd.read_csv(args.s, delimiter=';')
+        tableX = pd.DataFrame(pd.read_csv(args.i, delimiter=';'))
+        tableY = pd.read_csv(args.s, delimiter=';')
         # Selecionando as colunas
-        txid = tabelaY['tax_id'] 
-        termos_positivos = tabelaY['Positive_terms']
-        termos_negative = tabelaY['Negative_terms']
-        min_len = tabelaY['min_length']
-        max_len = tabelaY['max_length']
+        txid = tableY['tax_id'] 
+        positive_terms = tableY['Positive_terms']
+        negative_terms = tableY['Negative_terms']
+        min_len = tableY['min_length']
+        max_len = tableY['max_length']
         # Crindo nova tabela
-        nova_tabelaX = []
+        new_tableX = []
 
         #nao_anotado = []
         #Loop central; roda tando o protocolo defalt, quanto o protocolo anotação funcional
-        for i in range(len(tabelaX)):
-            for j in range(len(tabelaY)):
-                line = dict(tabelaX.iloc[i])
+        for i in range(len(tableX)):
+            for j in range(len(tableY)):
+                line = dict(tableX.iloc[i])
                 code = line.get("Virus GENBANK accession", "")
-                genero = line.get("Genus", "")
-                classe = line.get("Class", "")
-                familia = line.get("Family", "")
+                genus = line.get("Genus", "")
+                Class = line.get("Class", "")
+                family = line.get("Family", "")
                 #print(type(familia))
                 #print(f'FAMILIA: {familia}')
-                subfamilia = line.get("Subfamily", "")
-                if isinstance(familia, str):
-                    family = familia
-                elif isinstance(familia, float) and isinstance(subfamilia, str):
-                    family = subfamilia
-                elif isinstance(familia, float) and isinstance(subfamilia, float):
+                subfamily = line.get("Subfamily", "")
+                if isinstance(family, str):
+                    family = family
+                elif isinstance(family, float) and isinstance(subfamily, str):
+                    family = subfamily
+                elif isinstance(family, float) and isinstance(subfamily, float):
                     family = 'unclassified'
 
                 print(f"Processando código: {code}")
                 #time.sleep(1) 
 
-                protein_name = termos_positivos[j].split()
+                protein_name = positive_terms[j].split()
 
-                protein_genome_file = f'cds_virus_fasta/{family}/{genero}'
+                protein_genome_file = f'cds_virus_fasta/{family}/{genus}'
 
                 if len(protein_name) > 1: 
-                    diretorio = f'refdb/{classe}/{protein_name[0]}_{protein_name[1]}' 
+                    directory = f'refdb/{Class}/{protein_name[0]}_{protein_name[1]}' 
                     markers_file = f'markers/{family}/{protein_name[0]}_{protein_name[1]}/fasta.sequences'
 
                 else:    
-                    diretorio = f'refdb3/{classe}/{protein_name[0]}'
+                    directory = f'refdb3/{Class}/{protein_name[0]}'
                     markers_file = f'markers/{family}/{protein_name[0]}/fasta.sequences'
 
-                os.makedirs(diretorio, exist_ok=True)
+                os.makedirs(directory, exist_ok=True)
                 os.makedirs(protein_genome_file, exist_ok=True)
                 os.makedirs(markers_file, exist_ok=True)
 
         # Protocolo defalt: reculpera as acession_code_protein
                 Gi = busca_entrez(code)
                 #print(Gi)
-                proteina = filtered_search(Gi, [termos_positivos[j]], [termos_negative[j]], min_len[j], max_len[j])
+                protein = filtered_search(Gi, [positive_terms[j]], [negative_terms[j]], min_len[j], max_len[j])
                 fasta_file = cds_prot(Gi,protein_genome_file, code)
-                proteina_fasta = marker_fasta(fasta_file, proteina, markers_file, genero, family)
-                if proteina == []:
-                    print(f'sem proteinas:{proteina}')
+                fasta_protein = marker_fasta(fasta_file, protein, markers_file, genus, family)
+                if protein == []:
+                    print(f'sem protein:{protein}')
                 else:
-                    print(f'busca default:{proteina}')
+                    print(f'busca default:{protein}')
                
-                #print(termos_positivos[j])
+                #print(positive_terms[j])
         # Protocolo anotação funcional: identifica proteinas por similariedade e reculpera o acession_code_protein
-                if proteina == []:
+                if protein == []:
                     print("DEU ERRADOOOOO!!")
 
                     #print(fasta_file)
                     #print(database)
-                    database = refdb(termos_positivos[j],txid[j],classe, diretorio, protein_name, min_len[j], max_len[j])
+                    database = refdb(positive_terms[j],txid[j],Class, directory, protein_name, min_len[j], max_len[j])
                     blast_db = make_blast_db(database,fasta_file)
-                    proteina = blast_plus(database,fasta_file)
-                    proteina_s_fasta = marker_fasta(fasta_file, proteina, markers_file, genero, family)
-                    if proteina == None:
-                        print(f'sem proteina:{proteina}')
+                    protein = blast_plus(database,fasta_file)
+                    fasta_protein_s = marker_fasta(fasta_file, protein, markers_file, genus, family)
+                    if protein == None:
+                        print(f'sem proteina:{protein}')
                     else:
-                        print(f'busca por BLAST:{proteina}')
-                    #print(type(proteina))
+                        print(f'busca por BLAST:{protein}')
+                    #print(type(protein))
 
 
                 line['min_length'] = min_len[j]
                 line['max_length'] = max_len[j]
-                line['Negative_Terms'] = termos_negative[j]
-                line['Positive_Terms'] = termos_positivos[j]
-                line['Protein_codes'] = proteina if proteina else ""
+                line['Negative_Terms'] = negative_terms[j]
+                line['Positive_Terms'] = positive_terms[j]
+                line['Protein_codes'] = protein if protein else ""
                 line['tax_id'] = txid[j]
-                nova_tabelaX.append(line)
+                new_tableX.append(line)
 
 
         print("Salvando os resultados...")
-        nova_tabelaX = pd.DataFrame(nova_tabelaX)
-        nova_tabelaX.to_csv(args.o, sep=';', index=False)
+        new_tableX = pd.DataFrame(new_tableX)
+        new_tableX.to_csv(args.o, sep=';', index=False)
 
         df = pd.read_csv(args.o, delimiter=';')
 
-        nova_ordem = ['Isolate ID','Species Sort', 'Isolate Sort', 'Realm', 'Subrealm', 'Kingdom', 'Subkingdom', 'Phylum', 'Subphylum', 'Class', 'Subclass', 'Order', 'Suborder', 'Family', 'Subfamily', 'Genus', 'Subgenus', 'Species','ICTV_ID', 'Exemplar or additional isolate', 'Virus name(s)', 'Virus name abbreviation(s)', 'Virus isolate designation', 'Virus GENBANK accession', 'tax_id', 'Positive_Terms','Negative_Terms','min_length','max_length', 'Protein_codes', 'Genome coverage', 'Genome', 'Host source','Accessions Link']
+        new_order = ['Isolate ID','Species Sort', 'Isolate Sort', 'Realm', 'Subrealm', 'Kingdom', 'Subkingdom', 'Phylum', 'Subphylum', 'Class', 'Subclass', 'Order', 'Suborder', 'Family', 'Subfamily', 'Genus', 'Subgenus', 'Species','ICTV_ID', 'Exemplar or additional isolate', 'Virus name(s)', 'Virus name abbreviation(s)', 'Virus isolate designation', 'Virus GENBANK accession', 'tax_id', 'Positive_Terms','Negative_Terms','min_length','max_length', 'Protein_codes', 'Genome coverage', 'Genome', 'Host source','Accessions Link']
   
-        df = df[nova_ordem]
+        df = df[new_order]
         df.to_csv(args.o, index=False, sep=';')
 
         # Medindo o tempo total de execução
 
-        fim_tempo = time.perf_counter()
+        end_time = time.perf_counter()
 
-        tempo_total = fim_tempo - inicio_tempo
+        total_time = end_time - start_time
 
 
         # Convertendo o tempo total em horas, minutos e segundos
 
-        horas, resto = divmod(tempo_total, 3600)
+        hours, rest = divmod(total_time, 3600)
 
-        minutos, segundos = divmod(resto, 60)
+        minutes, seconds = divmod(rest, 60)
 
 
-        print(f"Tempo total de execução: {int(horas)} horas, {int(minutos)} minutos e {int(segundos)} segundos")
+        print(f"Tempo total de execução: {int(hours)} horas, {int(minutes)} minutos e {int(seconds)} segundos")
 
 
         print("Processo concluído!")
