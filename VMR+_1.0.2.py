@@ -14,9 +14,9 @@ import http.client
 import urllib.error
 
 
-version = "1.0.1"
+version = "1.0.2"
 help = """
-VMR Program version """+version+""" - 26 May 2025
+VMR Program version """+version+""" - 1 jun 2025
 Obtem codigos de acessos proteicos apartir de codigos de acessos nucleotidicos da tabela VMR
 (c) 2025. Rafael Santos da Silva & Arthur Gruber
 
@@ -46,7 +46,7 @@ def busca_entrez(nuc_acc):
 
     for attempt in range(3):
         try:
-            # Busca no banco de dados nuccore
+            # Search in the nuccore database.
             handle = Entrez.esearch(db="nuccore", term=nuc_acc, usehistory='y', timeout=30)
             record = Entrez.read(handle)
             #print(record)
@@ -55,7 +55,7 @@ def busca_entrez(nuc_acc):
             webenv = record['WebEnv']
             query_key = record['QueryKey']
 
-            # Link para o banco de dados de proteínas
+            # Link to the protein database.
             search_elink = Entrez.elink(dbfrom="nuccore", db='protein', query_key=query_key, webenv=webenv, linkname="nuccore_protein", timeout=30)
             result_elink = Entrez.read(search_elink)
             # print(Resultado_elink)
@@ -73,9 +73,9 @@ def busca_entrez(nuc_acc):
                 return protein_ids
 
         except (http.client.IncompleteRead, ValueError, RuntimeError, http.client.RemoteDisconnected, urllib.error.HTTPError, urllib.error.URLError) as e:
-            print(f"Erro ao buscar dados: {e}. Tentativa {attempt+1}/3...")
+            print(f"Error fetching data: {e}. attempts {attempt+1}/3...")
             time.sleep(5)
-    print("Falha ao obter dados após várias tentativas.")
+    print("Failed to retrieve data after multiple attempts.")
     return [] 
 
 def filtered_search(protein_ids, query_terms, negative_terms, min_len, max_len):
@@ -87,7 +87,7 @@ def filtered_search(protein_ids, query_terms, negative_terms, min_len, max_len):
             if not protein_ids:
                 return protein_ids 
             else:
-                # Separar termos negativos
+                # Separate negative terms.
                 separated_terms = []
                 for item in negative_terms:
                     if pd.isna(item):
@@ -99,6 +99,7 @@ def filtered_search(protein_ids, query_terms, negative_terms, min_len, max_len):
                 #print(search)
 
                 # Busca filtrada no banco de dados de proteínas
+                # filtered search in the protein database
                 search_with_filter = Entrez.esearch(db="protein", term=search, timeout=30)
                 filter_result = Entrez.read(search_with_filter)
                 #print(resultado_filtro)
@@ -108,7 +109,7 @@ def filtered_search(protein_ids, query_terms, negative_terms, min_len, max_len):
                     filtered_ids.append(id)
                 
                 if not filtered_ids:
-                    print("Nenhum ID filtrado encontrado. Pulando...")
+                    #print("No filtered ID found.)
                     return []
                 
                 with Entrez.efetch(db="protein", id=",".join(filtered_ids), rettype="gb", retmode="text", timeout=30) as search_efetch:
@@ -116,24 +117,24 @@ def filtered_search(protein_ids, query_terms, negative_terms, min_len, max_len):
 
                 seqio = SeqIO.parse(StringIO(response_data), "genbank")
                 extracted_ids = [record.id for record in seqio]
-                print(f"IDs extraídos: {extracted_ids}")
+                #print(f"Extracted IDs: {extracted_ids}")
                 return extracted_ids[0]
 
             #return filtered_ids
         except (http.client.IncompleteRead, ValueError, RuntimeError, http.client.RemoteDisconnected, urllib.error.HTTPError,urllib.error.URLError) as e:
-            print(f"Erro ao buscar dados: {e}. Tentativa {attempt+1}/3...")
+            print(f"Error fetching data: {e}. attempts {attempt+1}/3...")
             time.sleep(5)
     return []
 
 def cds_prot(protein_ids,path,nuc_acc): 
         
     output_file = f"{path}/{nuc_acc}_prot.fasta"
-
+    print(f"Downloading all proteins coded by {nuc_acc} sequence…")
     for attempt in range(3):
         try:
             fasta_list = []
             if os.path.exists(output_file):
-                print(f"O arquivo {output_file} já existe. Usando arquivo existente.")
+                #print(f"The file {output_file} already exists. Using the existing file.")
                 return output_file
             elif protein_ids == []:
                 return fasta_list
@@ -148,22 +149,20 @@ def cds_prot(protein_ids,path,nuc_acc):
 
                     with open(output_file, "w") as output_write:
                         SeqIO.write(fasta_list, output_write, "fasta")
-
-                extracted_ids = [record.id for record in fasta_list]
-                print(f"IDs extraídos: {extracted_ids}")
                 #time.sleep(1) 
-                #return fasta_records  # Retorna os registros FASTA
+                #return fasta_records  # Returns the FASTA records
                 return output_file
 
         except (http.client.IncompleteRead, ValueError, RuntimeError, http.client.RemoteDisconnected, urllib.error.HTTPError, urllib.error.URLError) as e:
-                print(f"Erro ao buscar dados: {e}. Tentativa {attempt+1}/3...")
+                print(f"Error fetching data: {e}. attempts {attempt+1}/3...")
                 time.sleep(5)
     return []
 
-# baixa os fastas de proteinas de uma familia 
+# Downloads the FASTA files of proteins from a family.
 def refdb(name_protein, taxid, Class, path, protein_name, min_len, max_len):
 
-    # Formata o nome do arquivo de saída
+    
+    # Formats the output file name.
     if len(protein_name) > 1: 
         names = f'{protein_name[0]}_{protein_name[1]}' 
     else:    
@@ -171,10 +170,11 @@ def refdb(name_protein, taxid, Class, path, protein_name, min_len, max_len):
     
     output_file = f"{path}/{Class}_{names}.fasta"
 
-    # Verifica se o arquivo já existe
-    if os.path.exists(output_file):
-        print(f"O arquivo {output_file} já existe. Usando arquivo existente.")
-        return output_file
+    # Checks if the file already exists.
+    # if os.path.exists(output_file):
+    #     print(f"The file {output_file} already exists. Using the existing file.")
+    #     return output_file
+    print(f'Building a BLAST database with reference protein sequences of {name_protein} of {Class}')
     len_search = f'"{min_len}"[SLEN] : "{max_len}"[SLEN]'
     search = f"{name_protein} AND txid{taxid}[Organism] AND {len_search}"
     #print(search)
@@ -187,7 +187,7 @@ def refdb(name_protein, taxid, Class, path, protein_name, min_len, max_len):
     #print(idlist)
     
     if not idlist:
-        print("Nenhum ID encontrado.")
+        #print("No ID found.")
         return []
 
     fasta_records = []
@@ -205,14 +205,14 @@ def refdb(name_protein, taxid, Class, path, protein_name, min_len, max_len):
                     fasta_records.append(seq_record) 
                 break 
             except (http.client.IncompleteRead, ValueError, RuntimeError, http.client.RemoteDisconnected, urllib.error.HTTPError, urllib.error.URLError) as e:
-                print(f"Erro ao ler dados(é aqui): {e}. Tentativa {attempt+1}/3...")
+                print(f"Error fetching data: {e}. attempts {attempt+1}/3...")
                 time.sleep(5)  
 
     with open(output_file, "w") as output_handle:
         SeqIO.write(fasta_records, output_handle, "fasta")
 
     return output_file
-# Reculpera o taxid da familia
+# Retrieves the taxid of the family.
 # def txid(family):
     
 #     handle = Entrez.esearch(db="taxonomy", term= family)
@@ -222,28 +222,28 @@ def refdb(name_protein, taxid, Class, path, protein_name, min_len, max_len):
 #     taxid =str(record["IdList"][0]) if record["IdList"] else None
 
 #     return taxid
-#Execulta os comando da função blast_plus
+#Executes the commands of the blast_plus function.
 def auxiliary(command):
-    """Executa um comando e verifica se foi bem-sucedido."""
+    """Executes a command and checks if it was successful."""
     try:
         result = subprocess.run(command, check=True, text=True)
-        print(f"Comando executado com sucesso: {' '.join(command)}")
+        print(f"Command executed successfully: {' '.join(command)}")
         return result
     except subprocess.CalledProcessError as e:
-        print(f"Erro ao executar o comando: {' '.join(command)}")
+        print(f"Error: Failed to execute {' '.join(command)}")
         print(e)
         return None
-# Crias linhas de comando que seram rodados na shell
+# Creates command lines that will be run in the shell.
 def blast_plus(database_fasta,genome):
 
-    result_file = f"resultado_blast_{os.getpid()}_{int(time.time())}.txt"
+    result_file = f"Blast_result_{os.getpid()}_{int(time.time())}.txt"
     
     try:
         if genome == []:
-            print('O genoma é uma lista vazia!!!')
+            #print('The genome is a empty list')
             return None
         else:
-            print(f"Executando BLAST: {genome} contra {database_fasta}")
+            # print(f"Running BLAST: {genome} versus {database_fasta}")
             
             blastp_cmd = [
                 "blastp",
@@ -261,78 +261,35 @@ def blast_plus(database_fasta,genome):
             if os.path.exists(result_file):
                 with open(result_file, "r") as read:
                     lines = read.readlines()
-                    if lines:  # Verifica se há linhas no arquivo
+                    if lines:  # Checks if there are lines in the file.
                         protein = lines[0].strip()
-                        print(f"Proteína encontrada: {protein}")
-                    else:
-                        print("Nenhum resultado encontrado no arquivo de saída do BLAST.")
-            else:
-                print(f"O arquivo {result_file} não foi encontrado.")
+                    #     print(f"Protein found: {protein}")
+                    # else:
+                    #     print("No results found in the BLAST output file.")
+            # else:
+            #       print(f"The file {result_file} was not found.")
                 
             return protein
             
     except Exception as e:
-        print(f"Erro durante a execução do BLAST: {e}")
+        print(f"BLAST execution failed: {e}")
         return None
     finally:
-        # Esta parte sempre será executada, garantindo a limpeza do arquivo
+        # This part will always be executed, ensuring the file is cleaned.
         if os.path.exists(result_file):
             try:
                 os.remove(result_file)
-                print(f"Arquivo temporário {result_file} removido com sucesso.")
+                # print(f"Temporary file {result_file} was successfully removed..")
             except Exception as e:
-                print(f"Erro ao remover arquivo temporário {result_file}: {e}")
-    # if genome == []:
-    #     print('O genoma é uma lista vazia!!!')
-    #     return None
-    # else:
-    #     # print(database_fasta)
-    #     # print(genome)
-    #     # makeblastdb_cmd = [
-    #     #     "makeblastdb",
-    #     #     "-in", database_fasta,
-    #     #     "-dbtype", "prot",
-    #     #     "-out", database_fasta
-    #     # ]
-    #     # auxiliary(makeblastdb_cmd)
-
-
-    #     blastp_cmd = [
-    #         "blastp",
-    #         "-query", genome,
-    #         "-db", database_fasta,
-    #         "-out", "resultado_blast.txt",
-    #         "-evalue", "1e-20",
-    #         "-num_alignments", "1",
-    #         "-outfmt", ""'6 qseqid '""
-    #     ]
-    #     auxiliary(blastp_cmd)
-
-
-    #     if os.path.exists("resultado_blast.txt"):
-    #         with open("resultado_blast.txt", "r") as leitura:
-    #             lines = leitura.readlines()
-    #             if lines:  # Verifica se há linhas no arquivo
-    #                 protein = lines[0].strip()
-
-    #                 return protein
-    #             else:
-    #                 print("Nenhum resultado encontrado no arquivo resultado_blast.txt.")
-    #                 return None
-    #     else:
-    #         print("O arquivo resultado_blast.txt não foi encontrado.")
-    #         return None
-    #     os.remove("resultado_blast.txt")
-
-    # return protein
+                print(f"Error removing temporary file {result_file}: {e}")
 
 def make_blast_db(database_fasta,genome):
     if genome == []:
-        print('O genoma é uma lista vazia!!!')
+        # print('The genome is a empty list')
         return None
     else:
         if os.path.exists(f'{database_fasta}.pdb'):
-            print(f"O arquivo {database_fasta}.pdb já existe. Usando arquivo existente.")
+            # print(f"The file {database_fasta}.pdb already exists. Using existing file.")
             return database_fasta
         else:
             # print(database_fasta)
@@ -351,9 +308,9 @@ def marker_fasta(fasta_file, keyword, path, genus, family):
     allmarker_file = f"{path}/{family}.fasta"
 
     try:
-        # Verifica se o arquivo test.fasta já existe
+        # Checks if the file test.fasta already exists.
         if keyword == []:
-            print(f'a palavra-chave é uma lista vazia')
+            # print(f'The keyword is an empty list.')
             return
         
         sequence = ""
@@ -369,16 +326,17 @@ def marker_fasta(fasta_file, keyword, path, genus, family):
                     
                     if keyword in line:
                         found = True  
-                        sequence += line # Mantém a linha original para test.fasta
+                        sequence += line # Keeps the original line for test.fasta.
                 elif found:
                     sequence += line
         
         if found:
+
             if os.path.exists(output_file):
                 with open(output_file, 'r', encoding='utf-8') as fasta_genus:
                     info_genus = fasta_genus.read()
                     if keyword in info_genus:
-                        print(f'Sequência: {keyword}, já existente em {genus}.fasta')
+                        print(f'Sequance: {keyword}, already existing in {genus}.fasta')
                     else:
                         with open(output_file, 'a', encoding='utf-8') as out:
                             out.write(sequence)
@@ -386,18 +344,18 @@ def marker_fasta(fasta_file, keyword, path, genus, family):
                 with open(output_file, "w") as out:
                     out.write(sequence)
             
-            # Escreve a sequência encontrada em Baculoviridae.fasta com o prefixo
+            # Writes the found sequence in Baculoviridae.fasta with the prefix.
             line_sequence = sequence.strip().splitlines()
             for i, line in enumerate(line_sequence):
                 if line.startswith('>'):
                     line_sequence[i] = line.replace('>', f'>{genus}_')
             
-            # Verifica se Baculoviridae.fasta já existe
+            # Checks if Baculoviridae.fasta already exists.
             if os.path.exists(allmarker_file):
                 with open(allmarker_file, 'r', encoding='utf-8') as f:
                     information = f.read()
                     if line_sequence[i] in information:
-                        print(f'Sequência: {line_sequence}, já existente em {family}.fasta')
+                        print(f'Sequence: {line_sequence}, already existing in {family}.fasta')
                     else:
                         with open(allmarker_file, 'a', encoding='utf-8') as out:
                             out.write("\n" + "\n".join(line_sequence))
@@ -405,14 +363,21 @@ def marker_fasta(fasta_file, keyword, path, genus, family):
                 with open(allmarker_file, "w") as out:
                     out.write("\n".join(line_sequence))
             
-            print(f'Sequência encontrada para "{keyword}":\n{sequence.strip()}')
-        else:
-            print(f'A palavra-chave "{keyword}" não foi encontrada no arquivo.')
-    
+        #     print(f'Sequence found for "{keyword}":\n{sequence.strip()}')
+        # else:
+        #     print(f'The keyword"{keyword}" was not found in file.')
     except FileNotFoundError:
-        print(f'O arquivo "{fasta_file}" não foi encontrado.')
-    except Exception as e:
-        print(f'Ocorreu um erro marker_fasta: {e}')
+        print(f'Error: The file {fasta_file} was not found')
+    except Exception:
+        return
+def counter_prot(fasta_file):
+    # Reads the file line by line.
+    counter = 0
+    with open(fasta_file, 'r', encoding='utf-8') as read_file:
+        for line in read_file:
+            counter += line.count('>')
+    print(f"Downloaded {counter} protein sequences. ")
+    return counter
 
 
 
@@ -429,21 +394,20 @@ VMR Program version """+version+""" - 04 Oct 2024
 """)
     else:
         start_time = time.perf_counter()
-        # Seleciona os arquivos que seram ultilizados
-        print("Lendo os dados...")
+        # Selects the files that will be used.
+        print("Starting execution…")
         tableX = pd.DataFrame(pd.read_csv(args.i, delimiter=';'))
         tableY = pd.read_csv(args.s, delimiter=';')
-        # Selecionando as colunas
+        # Selecting the columns.
         txid = tableY['tax_id'] 
         positive_terms = tableY['Positive_terms']
         negative_terms = tableY['Negative_terms']
         min_len = tableY['min_length']
         max_len = tableY['max_length']
-        # Crindo nova tabela
+        # Creating a new table.
         new_tableX = []
 
-        #nao_anotado = []
-        #Loop central; roda tando o protocolo defalt, quanto o protocolo anotação funcional
+        #Central loop; runs both the default protocol and the functional annotation protocol.
         for i in range(len(tableX)):
             for j in range(len(tableY)):
                 line = dict(tableX.iloc[i])
@@ -451,8 +415,8 @@ VMR Program version """+version+""" - 04 Oct 2024
                 genus = line.get("Genus", "")
                 Class = line.get("Class", "")
                 family = line.get("Family", "")
-                #print(type(familia))
-                #print(f'FAMILIA: {familia}')
+                #print(type(family))
+                #print(f'FAMILY: {family}')
                 subfamily = line.get("Subfamily", "")
                 if isinstance(family, str):
                     family = family
@@ -461,10 +425,11 @@ VMR Program version """+version+""" - 04 Oct 2024
                 elif isinstance(family, float) and isinstance(subfamily, float):
                     family = 'unclassified'
 
-                print(f"Processando código: {code}")
-                #time.sleep(1) 
-
                 protein_name = positive_terms[j].split()
+                definitive_protein_name = " ".join(protein_name)
+                # make join in building of file for protein names
+
+                print(f"Processing GenBank ID {code} with {definitive_protein_name} as an annotation term")
 
                 protein_genome_file = f'cds_virus_fasta/{family}/{genus}'
 
@@ -480,22 +445,22 @@ VMR Program version """+version+""" - 04 Oct 2024
                 os.makedirs(protein_genome_file, exist_ok=True)
                 os.makedirs(markers_file, exist_ok=True)
 
-        # Protocolo defalt: reculpera as acession_code_protein
+        # Default protocol: retrieves the accession_code_protein.
                 Gi = busca_entrez(code)
                 #print(Gi)
                 protein = filtered_search(Gi, [positive_terms[j]], [negative_terms[j]], min_len[j], max_len[j])
-                fasta_file = cds_prot(Gi,protein_genome_file, code)
+                fasta_file = cds_prot(Gi, protein_genome_file, code)
+                number_prot = counter_prot(fasta_file)
                 fasta_protein = marker_fasta(fasta_file, protein, markers_file, genus, family)
                 if protein == []:
-                    print(f'sem protein:{protein}')
+                    print(f'No protein annotated as {definitive_protein_name} was found on GenBank ID {code}.')
                 else:
-                    print(f'busca default:{protein}')
+                    print(f'Protein annotated as {definitive_protein_name} was found on GenBank ID MZ326854: {protein}')
                
                 #print(positive_terms[j])
-        # Protocolo anotação funcional: identifica proteinas por similariedade e reculpera o acession_code_protein
+        # Similarity protocol: identifies proteins by similarity 
                 if protein == []:
-                    print("DEU ERRADOOOOO!!")
-
+                    print(f"Running BLAST similarity search of the {number_prot} protein sequences against a reference database of {definitive_protein_name}")
                     #print(fasta_file)
                     #print(database)
                     database = refdb(positive_terms[j],txid[j],Class, directory, protein_name, min_len[j], max_len[j])
@@ -503,9 +468,9 @@ VMR Program version """+version+""" - 04 Oct 2024
                     protein = blast_plus(database,fasta_file)
                     fasta_protein_s = marker_fasta(fasta_file, protein, markers_file, genus, family)
                     if protein == None:
-                        print(f'sem proteina:{protein}')
+                        print(f'No hit found for capsid protein.')
                     else:
-                        print(f'busca por BLAST:{protein}')
+                        print(f'Positive protein for {definitive_protein_name} found: {protein}')
                     #print(type(protein))
 
 
@@ -518,7 +483,7 @@ VMR Program version """+version+""" - 04 Oct 2024
                 new_tableX.append(line)
 
 
-        print("Salvando os resultados...")
+        print("Saving all results…")
         new_tableX = pd.DataFrame(new_tableX)
         new_tableX.to_csv(args.o, sep=';', index=False)
 
@@ -529,21 +494,20 @@ VMR Program version """+version+""" - 04 Oct 2024
         df = df[new_order]
         df.to_csv(args.o, index=False, sep=';')
 
-        # Medindo o tempo total de execução
+        # Measuring the total execution time.
 
         end_time = time.perf_counter()
 
         total_time = end_time - start_time
 
 
-        # Convertendo o tempo total em horas, minutos e segundos
-
+        # Converting the total time into hours, minutes, and seconds.
         hours, rest = divmod(total_time, 3600)
 
         minutes, seconds = divmod(rest, 60)
 
 
-        print(f"Tempo total de execução: {int(hours)} horas, {int(minutes)} minutos e {int(seconds)} segundos")
+        print(f"Total execution time:{int(hours)} hours, {int(minutes)} minutes e {int(seconds)} sseconds")
 
 
-        print("Processo concluído!")
+        print("Execution finished!")
