@@ -13,6 +13,15 @@ import subprocess
 import http.client 
 import urllib.error
 
+import logging
+logging.basicConfig(
+    filename='VMR.log',
+    filemode='a',
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
+
 
 version = "1.0.3"
 help = """
@@ -75,9 +84,9 @@ def busca_entrez(nuc_acc):
                 return protein_ids
 
         except (http.client.IncompleteRead, ValueError, RuntimeError, http.client.RemoteDisconnected, urllib.error.HTTPError, urllib.error.URLError) as e:
-            print(f"Error fetching data: {e}. attempts {attempt+1}/3...")
+            logging.warning(f"Error fetching data: {e}. attempts {attempt+1}/3...")
             time.sleep(5)
-    print("Failed to retrieve data after multiple attempts.")
+    logging.error("Failed to retrieve data after multiple attempts.")
     return [] 
 
 def filtered_search(protein_ids, query_terms, negative_terms, min_len, max_len):
@@ -124,14 +133,15 @@ def filtered_search(protein_ids, query_terms, negative_terms, min_len, max_len):
 
             #return filtered_ids
         except (http.client.IncompleteRead, ValueError, RuntimeError, http.client.RemoteDisconnected, urllib.error.HTTPError,urllib.error.URLError) as e:
-            print(f"Error fetching data: {e}. attempts {attempt+1}/3...")
+            logging.warning(f"Error fetching data: {e}. attempts {attempt+1}/3...")
             time.sleep(5)
+    logging.error("Failed to retrieve data after multiple attempts.")
     return []
 
 def cds_prot(protein_ids,path,nuc_acc): 
         
     output_file = f"{path}/{nuc_acc}_prot.fasta"
-    print(f"Downloading all proteins coded by {nuc_acc} sequence…")
+    logging.info(f"Downloading all proteins coded by {nuc_acc} sequence…")
     for attempt in range(3):
         try:
             fasta_list = []
@@ -156,8 +166,9 @@ def cds_prot(protein_ids,path,nuc_acc):
                 return output_file
 
         except (http.client.IncompleteRead, ValueError, RuntimeError, http.client.RemoteDisconnected, urllib.error.HTTPError, urllib.error.URLError) as e:
-                print(f"Error fetching data: {e}. attempts {attempt+1}/3...")
+                logging.warning(f"Error fetching data: {e}. attempts {attempt+1}/3...")
                 time.sleep(5)
+    logging.error("Failed to retrieve data after multiple attempts.")
     return []
 
 # Downloads the FASTA files of proteins from a family.
@@ -176,7 +187,7 @@ def refdb(name_protein, taxid, parent_class, path, protein_name, min_len, max_le
     if os.path.exists(output_file):
         # print(f"The file {output_file} already exists. Using the existing file.")
         return output_file
-    print(f'Building a BLAST database with reference protein sequences of {name_protein} of {parent_class}')
+    logging.info(f'Building a BLAST database with reference protein sequences of {name_protein} of {parent_class}')
     len_search = f'"{min_len}"[SLEN] : "{max_len}"[SLEN]'
     search = f"{name_protein} AND txid{taxid}[Organism] AND {len_search}"
     #print(search)
@@ -207,7 +218,7 @@ def refdb(name_protein, taxid, parent_class, path, protein_name, min_len, max_le
                     fasta_records.append(seq_record) 
                 break 
             except (http.client.IncompleteRead, ValueError, RuntimeError, http.client.RemoteDisconnected, urllib.error.HTTPError, urllib.error.URLError) as e:
-                print(f"Error fetching data: {e}. attempts {attempt+1}/3...")
+                logging.warning(f"Error fetching data: {e}. attempts {attempt+1}/3...")
                 time.sleep(5)  
 
     with open(output_file, "w") as output_handle:
@@ -229,11 +240,11 @@ def auxiliary(command):
     """Executes a command and checks if it was successful."""
     try:
         result = subprocess.run(command, check=True, text=True)
-        print(f"Command executed successfully: {' '.join(command)}")
+        logging.info(f"Command executed successfully: {' '.join(command)}")
         return result
     except subprocess.CalledProcessError as e:
-        print(f"Error: Failed to execute {' '.join(command)}")
-        print(e)
+        logging.error(f"Error: Failed to execute {' '.join(command)}")
+        logging.error(e)
         return None
 # Creates command lines that will be run in the shell.
 def blast_plus(database_fasta,genome):
@@ -274,7 +285,7 @@ def blast_plus(database_fasta,genome):
         return protein
             
     except Exception as e:
-        print(f"BLAST execution failed: {e}")
+        logging.error(f"BLAST execution failed: {e}")
         return None
     finally:
         # This part will always be executed, ensuring the file is cleaned.
@@ -283,7 +294,7 @@ def blast_plus(database_fasta,genome):
                 os.remove(result_file)
                 # print(f"Temporary file {result_file} was successfully removed..")
             except Exception as e:
-                print(f"Error removing temporary file {result_file}: {e}")
+                logging.error(f"Error removing temporary file {result_file}: {e}")
 
 def make_blast_db(database_fasta):
     # if genome == []:
@@ -338,7 +349,7 @@ def marker_fasta(fasta_file, keyword, path, genus, family):
                 with open(output_file, 'r', encoding='utf-8') as fasta_genus:
                     info_genus = fasta_genus.read()
                     if keyword in info_genus:
-                        print(f'Sequance: {keyword}, already existing in {genus}.fasta')
+                        logging.warning(f'Sequance: {keyword}, already existing in {genus}.fasta')
                     else:
                         with open(output_file, 'a', encoding='utf-8') as out:
                             out.write(sequence)
@@ -357,7 +368,7 @@ def marker_fasta(fasta_file, keyword, path, genus, family):
                 with open(allmarker_file, 'r', encoding='utf-8') as f:
                     information = f.read()
                     if line_sequence[i] in information:
-                        print(f'Sequence: {line_sequence}, already existing in {family}.fasta')
+                        logging.warning(f'Sequence: {line_sequence}, already existing in {family}.fasta')
                     else:
                         with open(allmarker_file, 'a', encoding='utf-8') as out:
                             out.write("\n" + "\n".join(line_sequence))
@@ -369,7 +380,7 @@ def marker_fasta(fasta_file, keyword, path, genus, family):
         # else:
         #     print(f'The keyword"{keyword}" was not found in file.')
     except FileNotFoundError:
-        print(f'Error: The file {fasta_file} was not found')
+        logging.error(f'Error: The file {fasta_file} was not found')
     except Exception:
         return
 def counter_prot(fasta_file):
@@ -378,7 +389,7 @@ def counter_prot(fasta_file):
     with open(fasta_file, 'r', encoding='utf-8') as read_file:
         for line in read_file:
             counter += line.count('>')
-    print(f"Downloaded {counter} protein sequences. ")
+    logging.info(f"Downloaded {counter} protein sequences. ")
     return counter
 
 
@@ -397,7 +408,7 @@ VMR Program version """+version+""" - 04 Oct 2024
     else:
         start_time = time.perf_counter()
         # Selects the files that will be used.
-        print("Starting execution…")
+        logging.info("Starting execution…")
         tableX = pd.DataFrame(pd.read_csv(args.i, delimiter=';'))
         tableY = pd.read_csv(args.s, delimiter=';')
         # Selecting the columns.
@@ -450,7 +461,7 @@ VMR Program version """+version+""" - 04 Oct 2024
                 definitive_protein_name = " ".join(protein_name)
                 # make join in building of file for protein names
 
-                print(f"Processing GenBank ID {code} with {definitive_protein_name} as an annotation term")
+                logging.info(f"Processing GenBank ID {code} with {definitive_protein_name} as an annotation term")
 
                 protein_genome_file = f'cds_virus_fasta/{family}/{genus}'
 
@@ -473,14 +484,14 @@ VMR Program version """+version+""" - 04 Oct 2024
                 number_prot = counter_prot(fasta_file)
                 fasta_protein = marker_fasta(fasta_file, protein, markers_file, genus, family)
                 if protein == []:
-                    print(f'No protein annotated as {definitive_protein_name} was found on GenBank ID {code}.')
+                    logging.info(f'No protein annotated as {definitive_protein_name} was found on GenBank ID {code}.')
                 else:
-                    print(f'Protein annotated as {definitive_protein_name} was found on GenBank ID MZ326854: {protein}')
+                    logging.info(f'Protein annotated as {definitive_protein_name} was found on GenBank ID MZ326854: {protein}')
                
                 #print(positive_terms[j])
         # Similarity protocol: identifies proteins by similarity 
                 if protein == []:
-                    print(f"Running BLAST similarity search of the {number_prot} protein sequences against a reference database of {definitive_protein_name}")
+                    logging.info(f"Running BLAST similarity search of the {number_prot} protein sequences against a reference database of {definitive_protein_name}")
                     #print(fasta_file)
                     #print(database)
                     database = refdb(positive_terms[j],txid[j],Class, directory, protein_name, min_len[j], max_len[j])
@@ -488,9 +499,9 @@ VMR Program version """+version+""" - 04 Oct 2024
                     protein = blast_plus(database,fasta_file)
                     fasta_protein_s = marker_fasta(fasta_file, protein, markers_file, genus, family)
                     if protein == None:
-                        print(f'No hit found for capsid protein.')
+                        logging.info(f'No hit found for capsid protein.')
                     else:
-                        print(f'Positive protein for {definitive_protein_name} found: {protein}')
+                        logging.info(f'Positive protein for {definitive_protein_name} found: {protein}')
                     #print(type(protein))
 
 
@@ -503,7 +514,7 @@ VMR Program version """+version+""" - 04 Oct 2024
                 new_tableX.append(line)
 
 
-        print("Saving all results…")
+        logging.info("Saving all results…")
         new_tableX = pd.DataFrame(new_tableX)
         new_tableX.to_csv(args.o, sep=';', index=False)
 
@@ -527,7 +538,7 @@ VMR Program version """+version+""" - 04 Oct 2024
         minutes, seconds = divmod(rest, 60)
 
 
-        print(f"Total execution time:{int(hours)} hours, {int(minutes)} minutes e {int(seconds)} seconds")
+        logging.info(f"Total execution time:{int(hours)} hours, {int(minutes)} minutes e {int(seconds)} seconds")
 
 
-        print("Execution finished!")
+        logging.info("Execution finished!")
