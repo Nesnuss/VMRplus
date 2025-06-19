@@ -14,10 +14,12 @@ import http.client
 import urllib.error
 
 
-version = "1.0.2"
+version = "1.0.3"
 help = """
 VMR Program version """+version+""" - 1 jun 2025
-Obtem codigos de acessos proteicos apartir de codigos de acessos nucleotidicos da tabela VMR
+
+Generate an incremented table of the ICTV's VMR/MSL table
+
 (c) 2025. Rafael Santos da Silva & Arthur Gruber
 
 Usage: VMR.py -i <tabela VMR> -o <tabela output>
@@ -159,7 +161,7 @@ def cds_prot(protein_ids,path,nuc_acc):
     return []
 
 # Downloads the FASTA files of proteins from a family.
-def refdb(name_protein, taxid, Class, path, protein_name, min_len, max_len):
+def refdb(name_protein, taxid, parent_class, path, protein_name, min_len, max_len):
 
     
     # Formats the output file name.
@@ -168,13 +170,13 @@ def refdb(name_protein, taxid, Class, path, protein_name, min_len, max_len):
     else:    
         names = f'{protein_name[0]}'
     
-    output_file = f"{path}/{Class}_{names}.fasta"
+    output_file = f"{path}/{parent_class}_{names}.fasta"
 
     # Checks if the file already exists.
-    # if os.path.exists(output_file):
-    #     print(f"The file {output_file} already exists. Using the existing file.")
-    #     return output_file
-    print(f'Building a BLAST database with reference protein sequences of {name_protein} of {Class}')
+    if os.path.exists(output_file):
+        # print(f"The file {output_file} already exists. Using the existing file.")
+        return output_file
+    print(f'Building a BLAST database with reference protein sequences of {name_protein} of {parent_class}')
     len_search = f'"{min_len}"[SLEN] : "{max_len}"[SLEN]'
     search = f"{name_protein} AND txid{taxid}[Organism] AND {len_search}"
     #print(search)
@@ -240,7 +242,7 @@ def blast_plus(database_fasta,genome):
     
     try:
         if genome == []:
-            #print('The genome is a empty list')
+             #print('The genome is a empty list')
             return None
         else:
             # print(f"Running BLAST: {genome} versus {database_fasta}")
@@ -256,20 +258,20 @@ def blast_plus(database_fasta,genome):
             ]
             
             auxiliary(blastp_cmd)
+        
+        protein = None
+        if os.path.exists(result_file):
+            with open(result_file, "r") as read:
+                lines = read.readlines()
+                if lines:  # Checks if there are lines in the file.
+                    protein = lines[0].strip()
+                #     print(f"Protein found: {protein}")
+                # else:
+                #     print("No results found in the BLAST output file.")
+        # else:
+        #       print(f"The file {result_file} was not found.")
             
-            protein = None
-            if os.path.exists(result_file):
-                with open(result_file, "r") as read:
-                    lines = read.readlines()
-                    if lines:  # Checks if there are lines in the file.
-                        protein = lines[0].strip()
-                    #     print(f"Protein found: {protein}")
-                    # else:
-                    #     print("No results found in the BLAST output file.")
-            # else:
-            #       print(f"The file {result_file} was not found.")
-                
-            return protein
+        return protein
             
     except Exception as e:
         print(f"BLAST execution failed: {e}")
@@ -283,24 +285,24 @@ def blast_plus(database_fasta,genome):
             except Exception as e:
                 print(f"Error removing temporary file {result_file}: {e}")
 
-def make_blast_db(database_fasta,genome):
-    if genome == []:
-        # print('The genome is a empty list')
-        return None
+def make_blast_db(database_fasta):
+    # if genome == []:
+    #     # print('The genome is a empty list')
+    #     return None
+    # else:
+    if os.path.exists(f'{database_fasta}.pdb'):
+        # print(f"The file {database_fasta}.pdb already exists. Using existing file.")
+        return database_fasta
     else:
-        if os.path.exists(f'{database_fasta}.pdb'):
-            # print(f"The file {database_fasta}.pdb already exists. Using existing file.")
-            return database_fasta
-        else:
-            # print(database_fasta)
-            # print(genome)
-            makeblastdb_cmd = [
-                "makeblastdb",
-                "-in", database_fasta,
-                "-dbtype", "prot",
-                "-out", database_fasta
-            ]
-            auxiliary(makeblastdb_cmd)
+        # print(database_fasta)
+        # print(genome)
+        makeblastdb_cmd = [
+            "makeblastdb",
+            "-in", database_fasta,
+            "-dbtype", "prot",
+            "-out", database_fasta
+        ]
+        auxiliary(makeblastdb_cmd)
 
 def marker_fasta(fasta_file, keyword, path, genus, family):
 
@@ -404,7 +406,26 @@ VMR Program version """+version+""" - 04 Oct 2024
         negative_terms = tableY['Negative_terms']
         min_len = tableY['min_length']
         max_len = tableY['max_length']
+        parent = tableY['Parent']
         # Creating a new table.
+        for y in range(len(tableY)):
+
+            parent_class = parent[y].split()
+        
+            protein_name_refdb = positive_terms[y].split()
+            definitive_protein_name_refdb = " ".join(protein_name_refdb)
+
+
+            if len(protein_name_refdb) > 1: 
+                directory_refdb = f'refdb/{parent_class[0]}/{protein_name_refdb[0]}_{protein_name_refdb[1]}' 
+            else:    
+                directory_refdb = f'refdb/{parent_class[0]}/{protein_name_refdb[0]}'
+
+            os.makedirs(directory_refdb, exist_ok=True)
+
+            database = refdb(positive_terms[y],txid[y],parent_class[0], directory_refdb, protein_name_refdb, min_len[y], max_len[y])
+            blast_db = make_blast_db(database)
+
         new_tableX = []
 
         #Central loop; runs both the default protocol and the functional annotation protocol.
@@ -437,11 +458,10 @@ VMR Program version """+version+""" - 04 Oct 2024
                     directory = f'refdb/{Class}/{protein_name[0]}_{protein_name[1]}' 
                     markers_file = f'markers/{family}/{protein_name[0]}_{protein_name[1]}/fasta.sequences'
 
-                else:    
+                else:
                     directory = f'refdb3/{Class}/{protein_name[0]}'
                     markers_file = f'markers/{family}/{protein_name[0]}/fasta.sequences'
 
-                os.makedirs(directory, exist_ok=True)
                 os.makedirs(protein_genome_file, exist_ok=True)
                 os.makedirs(markers_file, exist_ok=True)
 
@@ -464,7 +484,7 @@ VMR Program version """+version+""" - 04 Oct 2024
                     #print(fasta_file)
                     #print(database)
                     database = refdb(positive_terms[j],txid[j],Class, directory, protein_name, min_len[j], max_len[j])
-                    blast_db = make_blast_db(database,fasta_file)
+                    #blast_db = make_blast_db(database)
                     protein = blast_plus(database,fasta_file)
                     fasta_protein_s = marker_fasta(fasta_file, protein, markers_file, genus, family)
                     if protein == None:
@@ -507,7 +527,7 @@ VMR Program version """+version+""" - 04 Oct 2024
         minutes, seconds = divmod(rest, 60)
 
 
-        print(f"Total execution time:{int(hours)} hours, {int(minutes)} minutes e {int(seconds)} sseconds")
+        print(f"Total execution time:{int(hours)} hours, {int(minutes)} minutes e {int(seconds)} seconds")
 
 
         print("Execution finished!")
