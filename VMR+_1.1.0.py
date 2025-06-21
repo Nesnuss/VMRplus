@@ -23,9 +23,9 @@ logging.basicConfig(
 
 
 
-version = "1.0.3"
+version = "1.1.0"
 help = """
-VMR Program version """+version+""" - 1 jun 2025
+VMR Program version """+version+""" -  jun 2025
 
 Generate an incremented table of the ICTV's VMR/MSL table
 
@@ -402,7 +402,7 @@ if __name__ == '__main__':
         print(help)
     elif args.version == True:
         print("""
-VMR Program version """+version+""" - 04 Oct 2024
+VMR Program version """+version+""" - 20 jun 2025
 (c) 2024. Rafael Santos da Silva & Arthur Gruber
 """)
     else:
@@ -411,6 +411,8 @@ VMR Program version """+version+""" - 04 Oct 2024
         logging.info("Starting execution…")
         tableX = pd.DataFrame(pd.read_csv(args.i, delimiter=';'))
         tableY = pd.read_csv(args.s, delimiter=';')
+
+        genome_conter = tableX['Virus GENBANK accession'].nunique()
         # Selecting the columns.
         txid = tableY['tax_id'] 
         positive_terms = tableY['Positive_terms']
@@ -418,7 +420,18 @@ VMR Program version """+version+""" - 04 Oct 2024
         min_len = tableY['min_length']
         max_len = tableY['max_length']
         parent = tableY['Parent']
-        # Creating a new table.
+
+        #counters
+        reductase_prot_annot_count = 0
+        reductase_prot_blast_count = 0
+        reductase_no_prot_blast_count = 0
+        polymerase_prot_annot_count = 0
+        polymerase_prot_blast_count = 0
+        polymerase_no_prot_blast_count = 0
+        capsid_prot_annot_count = 0
+        capsid_prot_blast_count = 0
+        capsid_no_prot_blast_count = 0
+
         for y in range(len(tableY)):
 
             parent_class = parent[y].split()
@@ -436,6 +449,8 @@ VMR Program version """+version+""" - 04 Oct 2024
 
             database = refdb(positive_terms[y],txid[y],parent_class[0], directory_refdb, protein_name_refdb, min_len[y], max_len[y])
             blast_db = make_blast_db(database)
+
+        # Creating a new table.
 
         new_tableX = []
 
@@ -459,6 +474,7 @@ VMR Program version """+version+""" - 04 Oct 2024
 
                 protein_name = positive_terms[j].split()
                 definitive_protein_name = " ".join(protein_name)
+
                 # make join in building of file for protein names
 
                 logging.info(f"Processing GenBank ID {code} with {definitive_protein_name} as an annotation term")
@@ -486,7 +502,14 @@ VMR Program version """+version+""" - 04 Oct 2024
                 if protein == []:
                     logging.info(f'No protein annotated as {definitive_protein_name} was found on GenBank ID {code}.')
                 else:
-                    logging.info(f'Protein annotated as {definitive_protein_name} was found on GenBank ID MZ326854: {protein}')
+                    if definitive_protein_name == "Ribonucleoside-diphosphate reductase large subunit":
+                        reductase_prot_annot_count += 1
+                    elif definitive_protein_name == "DNA-directed DNA polymerase":
+                        polymerase_prot_annot_count += 1
+                    elif definitive_protein_name == "Major capsid protein": 
+                        capsid_prot_annot_count += 1
+                    logging.info(f'Protein annotated as {definitive_protein_name} was found on GenBank ID: {protein}')
+                    logging.info(f'')
                
                 #print(positive_terms[j])
         # Similarity protocol: identifies proteins by similarity 
@@ -499,9 +522,23 @@ VMR Program version """+version+""" - 04 Oct 2024
                     protein = blast_plus(database,fasta_file)
                     fasta_protein_s = marker_fasta(fasta_file, protein, markers_file, genus, family)
                     if protein == None:
-                        logging.info(f'No hit found for capsid protein.')
+                        if definitive_protein_name == "Ribonucleoside-diphosphate reductase large subunit":
+                            reductase_no_prot_blast_count += 1
+                        elif definitive_protein_name == "DNA-directed DNA polymerase":
+                            polymerase_no_prot_blast_count += 1
+                        elif definitive_protein_name == "Major capsid protein": 
+                            capsid_no_prot_blast_count += 1
+                        logging.info(f'No hit found for {definitive_protein_name}.')
+                        logging.info(f'')
                     else:
+                        if definitive_protein_name == "Ribonucleoside-diphosphate reductase large subunit":
+                            reductase_prot_blast_count += 1
+                        elif definitive_protein_name == "DNA-directed DNA polymerase":
+                            polymerase_prot_blast_count += 1
+                        elif definitive_protein_name == "Major capsid protein": 
+                            capsid_prot_blast_count += 1
                         logging.info(f'Positive protein for {definitive_protein_name} found: {protein}')
+                        logging.info(f'')
                     #print(type(protein))
 
 
@@ -515,6 +552,7 @@ VMR Program version """+version+""" - 04 Oct 2024
 
 
         logging.info("Saving all results…")
+        logging.info(f'')
         new_tableX = pd.DataFrame(new_tableX)
         new_tableX.to_csv(args.o, sep=';', index=False)
 
@@ -524,6 +562,32 @@ VMR Program version """+version+""" - 04 Oct 2024
   
         df = df[new_order]
         df.to_csv(args.o, index=False, sep=';')
+
+        logging.info('Generating final report…')
+        logging.info(f'')
+        logging.info('Final report')
+        logging.info(f'Total # of genome processed sequences: {genome_conter}')
+        logging.info(f'')
+        logging.info(f'Major capsid')
+        logging.info(f' Detected by annotation terms: {capsid_prot_annot_count}')
+        logging.info(f' Detected by similarity search:{capsid_prot_blast_count} ')
+        logging.info(f' Undetected: {capsid_no_prot_blast_count}')
+        logging.info(f'DNA polymerase')
+        logging.info(f' Detected by annotation terms: {polymerase_prot_annot_count}')
+        logging.info(f' Detected by similarity search: {polymerase_prot_blast_count}')
+        logging.info(f' Undetected: {polymerase_no_prot_blast_count}')
+        logging.info(f'Ribonucleoside diphosphate reductase')
+        logging.info(f' Detected by annotation terms: {reductase_prot_annot_count}')
+        logging.info(f' Detected by similarity search: {reductase_prot_blast_count}')
+        logging.info(f' Undetected: {reductase_no_prot_blast_count}')
+        logging.info(f'')
+        logging.info(f'Total number of  proteins detected by annotation terms: {capsid_prot_annot_count+reductase_prot_annot_count+polymerase_prot_annot_count}')
+        logging.info(f'Total number of  proteins detected by similarity search: {capsid_prot_blast_count+reductase_prot_blast_count+polymerase_prot_blast_count}')
+        logging.info(f'Total number of undetected proteins: {capsid_no_prot_blast_count+reductase_no_prot_blast_count+polymerase_no_prot_blast_count}')
+
+        
+
+
 
         # Measuring the total execution time.
 
