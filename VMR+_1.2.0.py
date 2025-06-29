@@ -12,18 +12,15 @@ from io import StringIO
 import subprocess
 import http.client 
 import urllib.error
-
 import logging
-logging.basicConfig(
-    filename='VMR.log',
-    filemode='a',
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
 
 
 
-version = "1.1.0"
+
+
+
+
+version = "1.2.0"
 help = """
 VMR Program version """+version+""" -  jun 2025
 
@@ -37,19 +34,6 @@ Usage: VMR.py -i <tabela VMR> -o <tabela output>
 -o output <file name>      	Output table file
 -s <file name>              auxiliary table
 """
-
-parser = argparse.ArgumentParser(add_help=False, formatter_class=RawTextHelpFormatter)
-parser.add_argument('-i')
-parser.add_argument('-o')
-parser.add_argument('-h', '--help', action='store_true')
-parser.add_argument('-v', '--version', action='store_true')
-#parser.add_argument('-c', type=int, default= 22)
-#parser.add_argument('-w', type=int, default= 27)
-parser.add_argument('-s')
-args = parser.parse_args()
-
-
-
 Entrez.email = "rafass2003@gmail.com"
 Entrez.api_key = "511ef882e71fdff1e01eaaa3177e47c43e09"   
 
@@ -138,9 +122,11 @@ def filtered_search(protein_ids, query_terms, negative_terms, min_len, max_len):
     logging.error("Failed to retrieve data after multiple attempts.")
     return []
 
-def cds_prot(protein_ids,path,nuc_acc): 
-        
-    output_file = f"{path}/{nuc_acc}_prot.fasta"
+def cds_prot(protein_ids,path,nuc_acc):   
+
+    file_name = f"{nuc_acc}_prot.fasta"
+    output_file = os.path.join(path, file_name)
+
     logging.info(f"Downloading all proteins coded by {nuc_acc} sequence…")
     for attempt in range(3):
         try:
@@ -176,12 +162,10 @@ def refdb(name_protein, taxid, parent_class, path, protein_name, min_len, max_le
 
     
     # Formats the output file name.
-    if len(protein_name) > 1: 
-        names = f'{protein_name[0]}_{protein_name[1]}' 
-    else:    
-        names = f'{protein_name[0]}'
+    name = "_".join(protein_name)
+    file_name = f"{parent_class}_{name}.fasta"
     
-    output_file = f"{path}/{parent_class}_{names}.fasta"
+    output_file = os.path.join(path, file_name)
 
     # Checks if the file already exists.
     if os.path.exists(output_file):
@@ -225,16 +209,6 @@ def refdb(name_protein, taxid, parent_class, path, protein_name, min_len, max_le
         SeqIO.write(fasta_records, output_handle, "fasta")
 
     return output_file
-# Retrieves the taxid of the family.
-# def txid(family):
-    
-#     handle = Entrez.esearch(db="taxonomy", term= family)
-#     record = Entrez.read(handle)
-#     handle.close()
-
-#     taxid =str(record["IdList"][0]) if record["IdList"] else None
-
-#     return taxid
 #Executes the commands of the blast_plus function.
 def auxiliary(command):
     """Executes a command and checks if it was successful."""
@@ -317,8 +291,12 @@ def make_blast_db(database_fasta):
 
 def marker_fasta(fasta_file, keyword, path, genus, family):
 
-    output_file = f"{path}/{genus}.fasta"
-    allmarker_file = f"{path}/{family}.fasta"
+
+    file_family = f"{family}.fasta"
+    file_genus = f"{genus}.fasta"
+    
+    output_file = os.path.join(path, file_genus)
+    allmarker_file = os.path.join(path, file_family)
 
     try:
         # Checks if the file test.fasta already exists.
@@ -383,16 +361,53 @@ def marker_fasta(fasta_file, keyword, path, genus, family):
         logging.error(f'Error: The file {fasta_file} was not found')
     except Exception:
         return
+    
 def counter_prot(fasta_file):
     # Reads the file line by line.
     counter = 0
-    with open(fasta_file, 'r', encoding='utf-8') as read_file:
-        for line in read_file:
-            counter += line.count('>')
-    logging.info(f"Downloaded {counter} protein sequences. ")
-    return counter
+    if fasta_file == []:
+        logging.warning(f"Downloaded {counter} protein sequences. ")
+        return counter
+    else:
+        with open(fasta_file, 'r', encoding='utf-8') as read_file:
+            for line in read_file:
+                counter += line.count('>')
+        logging.info(f"Downloaded {counter} protein sequences. ")
+        return counter
+
+def unique_dir(base_dir):
+    if not os.path.exists(base_dir):
+        return base_dir
+
+    counter = 2
+    new_dir = f"{base_dir}{counter}"
+    while os.path.exists(new_dir):
+        counter += 1
+        new_dir = f"{base_dir}{counter}"
+    return new_dir
 
 
+parser = argparse.ArgumentParser(add_help=False, formatter_class=RawTextHelpFormatter)
+parser.add_argument('-i')
+parser.add_argument("-o", "--output", default= 'output_dir')
+parser.add_argument('-h', '--help', action='store_true')
+parser.add_argument('-v', '--version', action='store_true')
+parser.add_argument('-s')
+args = parser.parse_args()
+
+final_dir = unique_dir(args.output)
+
+os.makedirs(final_dir)
+
+log_file = os.path.join(final_dir,"VMR.log")
+
+
+logging.basicConfig(
+    filename = log_file,
+    filemode = 'a',
+    format = '%(asctime)s - %(levelname)s - %(message)s',
+    level = logging.INFO
+)
 
 
 if __name__ == '__main__':
@@ -402,7 +417,7 @@ if __name__ == '__main__':
         print(help)
     elif args.version == True:
         print("""
-VMR Program version """+version+""" - 20 jun 2025
+VMR Program version """+version+""" - 23 jun 2025
 (c) 2024. Rafael Santos da Silva & Arthur Gruber
 """)
     else:
@@ -411,7 +426,7 @@ VMR Program version """+version+""" - 20 jun 2025
         logging.info("Starting execution…")
         tableX = pd.DataFrame(pd.read_csv(args.i, delimiter=';'))
         tableY = pd.read_csv(args.s, delimiter=';')
-
+        # Selecting the columns and count the different itens
         genome_conter = tableX['Virus GENBANK accession'].nunique()
         # Selecting the columns.
         txid = tableY['tax_id'] 
@@ -432,22 +447,23 @@ VMR Program version """+version+""" - 20 jun 2025
         capsid_prot_blast_count = 0
         capsid_no_prot_blast_count = 0
 
+        # os.makedirs(args.o, exist_ok=True)
+
         for y in range(len(tableY)):
 
             parent_class = parent[y].split()
         
             protein_name_refdb = positive_terms[y].split()
-            definitive_protein_name_refdb = " ".join(protein_name_refdb)
 
+            underscore_protein_name_refdb = "_".join(protein_name_refdb)
 
-            if len(protein_name_refdb) > 1: 
-                directory_refdb = f'refdb/{parent_class[0]}/{protein_name_refdb[0]}_{protein_name_refdb[1]}' 
-            else:    
-                directory_refdb = f'refdb/{parent_class[0]}/{protein_name_refdb[0]}'
+            dir_refdb = os.path.join(final_dir,"refdb")
+            dir_refdb_final = os.path.join(dir_refdb, parent_class[0], underscore_protein_name_refdb)
 
-            os.makedirs(directory_refdb, exist_ok=True)
+            os.makedirs(dir_refdb, exist_ok=True)
+            os.makedirs(dir_refdb_final, exist_ok=True)
 
-            database = refdb(positive_terms[y],txid[y],parent_class[0], directory_refdb, protein_name_refdb, min_len[y], max_len[y])
+            database = refdb(positive_terms[y],txid[y],parent_class[0], dir_refdb_final, protein_name_refdb, min_len[y], max_len[y])
             blast_db = make_blast_db(database)
 
         # Creating a new table.
@@ -474,31 +490,34 @@ VMR Program version """+version+""" - 20 jun 2025
 
                 protein_name = positive_terms[j].split()
                 definitive_protein_name = " ".join(protein_name)
+                underscore_protein_name = "_".join(protein_name)
 
                 # make join in building of file for protein names
 
                 logging.info(f"Processing GenBank ID {code} with {definitive_protein_name} as an annotation term")
 
-                protein_genome_file = f'cds_virus_fasta/{family}/{genus}'
+                dir_genome = os.path.join(final_dir,"cds_virus_fasta")
+                dir_genome_final = os.path.join(dir_genome, family, genus)
 
-                if len(protein_name) > 1: 
-                    directory = f'refdb/{Class}/{protein_name[0]}_{protein_name[1]}' 
-                    markers_file = f'markers/{family}/{protein_name[0]}_{protein_name[1]}/fasta.sequences'
+                dir_refdb_info = os.path.join(final_dir,"refdb")
+                dir_refdb_info_final = os.path.join(dir_refdb_info, Class, underscore_protein_name)
 
-                else:
-                    directory = f'refdb3/{Class}/{protein_name[0]}'
-                    markers_file = f'markers/{family}/{protein_name[0]}/fasta.sequences'
+                dir_marker = os.path.join(final_dir,"markers")
+                dir_marker_final = os.path.join(dir_marker, family, underscore_protein_name,"fasta")
 
-                os.makedirs(protein_genome_file, exist_ok=True)
-                os.makedirs(markers_file, exist_ok=True)
+
+                os.makedirs(dir_marker, exist_ok=True)
+                os.makedirs(dir_marker_final, exist_ok=True)
+                os.makedirs(dir_genome, exist_ok=True)
+                os.makedirs(dir_genome_final, exist_ok=True)
 
         # Default protocol: retrieves the accession_code_protein.
                 Gi = busca_entrez(code)
                 #print(Gi)
                 protein = filtered_search(Gi, [positive_terms[j]], [negative_terms[j]], min_len[j], max_len[j])
-                fasta_file = cds_prot(Gi, protein_genome_file, code)
+                fasta_file = cds_prot(Gi, dir_genome_final, code)
                 number_prot = counter_prot(fasta_file)
-                fasta_protein = marker_fasta(fasta_file, protein, markers_file, genus, family)
+                fasta_protein = marker_fasta(fasta_file, protein, dir_marker_final, genus, family)
                 if protein == []:
                     logging.info(f'No protein annotated as {definitive_protein_name} was found on GenBank ID {code}.')
                 else:
@@ -517,10 +536,10 @@ VMR Program version """+version+""" - 20 jun 2025
                     logging.info(f"Running BLAST similarity search of the {number_prot} protein sequences against a reference database of {definitive_protein_name}")
                     #print(fasta_file)
                     #print(database)
-                    database = refdb(positive_terms[j],txid[j],Class, directory, protein_name, min_len[j], max_len[j])
+                    database = refdb(positive_terms[j],txid[j],Class, dir_refdb_info_final, protein_name, min_len[j], max_len[j])
                     #blast_db = make_blast_db(database)
                     protein = blast_plus(database,fasta_file)
-                    fasta_protein_s = marker_fasta(fasta_file, protein, markers_file, genus, family)
+                    fasta_protein_s = marker_fasta(fasta_file, protein, dir_marker_final, genus, family)
                     if protein == None:
                         if definitive_protein_name == "Ribonucleoside-diphosphate reductase large subunit":
                             reductase_no_prot_blast_count += 1
@@ -550,18 +569,20 @@ VMR Program version """+version+""" - 20 jun 2025
                 line['tax_id'] = txid[j]
                 new_tableX.append(line)
 
+        final_table = f'VMR+_{str(args.i)}'
+        table_file = os.path.join(final_dir,final_table)
 
         logging.info("Saving all results…")
         logging.info(f'')
         new_tableX = pd.DataFrame(new_tableX)
-        new_tableX.to_csv(args.o, sep=';', index=False)
+        new_tableX.to_csv(table_file, sep=';', index=False)
 
-        df = pd.read_csv(args.o, delimiter=';')
+        df = pd.read_csv(table_file, delimiter=';')
 
         new_order = ['Isolate ID','Species Sort', 'Isolate Sort', 'Realm', 'Subrealm', 'Kingdom', 'Subkingdom', 'Phylum', 'Subphylum', 'Class', 'Subclass', 'Order', 'Suborder', 'Family', 'Subfamily', 'Genus', 'Subgenus', 'Species','ICTV_ID', 'Exemplar or additional isolate', 'Virus name(s)', 'Virus name abbreviation(s)', 'Virus isolate designation', 'Virus GENBANK accession', 'tax_id', 'Positive_Terms','Negative_Terms','min_length','max_length', 'Protein_codes', 'Genome coverage', 'Genome', 'Host source','Accessions Link']
   
         df = df[new_order]
-        df.to_csv(args.o, index=False, sep=';')
+        df.to_csv(table_file, index=False, sep=';')
 
         logging.info('Generating final report…')
         logging.info(f'')
