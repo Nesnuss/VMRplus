@@ -13,14 +13,13 @@ import subprocess
 import http.client 
 import urllib.error
 import logging
+from pathlib import Path
 
 
 
 
 
-
-
-version = "1.2.0"
+version = "1.3.0"
 help = """
 VMR Program version """+version+""" -  jun 2025
 
@@ -32,8 +31,10 @@ Usage: VMR.py -i <tabela VMR> -o <tabela output>
 
 -i input<VMR table>         VMR table
 -o output <file name>      	Output table file
--s <file name>              auxiliary table
+-s <sheet number>           Worksheet number in the .xlsx file
+-t <auxiliary table>        Terms table
 """
+
 Entrez.email = "rafass2003@gmail.com"
 Entrez.api_key = "511ef882e71fdff1e01eaaa3177e47c43e09"   
 
@@ -392,14 +393,15 @@ parser.add_argument('-i')
 parser.add_argument("-o", "--output", default= 'output_dir')
 parser.add_argument('-h', '--help', action='store_true')
 parser.add_argument('-v', '--version', action='store_true')
-parser.add_argument('-s')
+parser.add_argument('-t')
+parser.add_argument('-s', type = int, default = 1)
 args = parser.parse_args()
 
 final_dir = unique_dir(args.output)
 
 os.makedirs(final_dir)
 
-log_file = os.path.join(final_dir,"VMR.log")
+log_file = os.path.join(final_dir, "VMR.log")
 
 
 logging.basicConfig(
@@ -413,9 +415,9 @@ logging.basicConfig(
 if __name__ == '__main__':
     if not len(sys.argv)>1:
         print(help)
-    elif args.help == True:
+    elif args.help:
         print(help)
-    elif args.version == True:
+    elif args.version:
         print("""
 VMR Program version """+version+""" - 23 jun 2025
 (c) 2024. Rafael Santos da Silva & Arthur Gruber
@@ -424,8 +426,24 @@ VMR Program version """+version+""" - 23 jun 2025
         start_time = time.perf_counter()
         # Selects the files that will be used.
         logging.info("Starting execution…")
-        tableX = pd.DataFrame(pd.read_csv(args.i, delimiter=';'))
-        tableY = pd.read_csv(args.s, delimiter=';')
+        input_file = args.i
+        #print(input_file)
+        sheet = args.s-1
+        #print(sheet_name)
+        df = pd.read_excel(input_file, sheet_name=sheet )
+        #print(df)
+        file = Path(input_file)
+        #print(file)
+        new_file = file.with_suffix(".CSV")
+        #print(new_file)
+        csv_file = os.path.join(final_dir, new_file)
+        #print(csv_file)
+        df.to_csv(csv_file, sep=";", index=False)
+        logging.info(f"{input_file} to {new_file} conversion")
+
+
+        tableX = pd.DataFrame(pd.read_csv(csv_file, delimiter=';'))
+        tableY = pd.read_csv(args.t, delimiter=';')
         # Selecting the columns and count the different itens
         genome_conter = tableX['Virus GENBANK accession'].nunique()
         # Selecting the columns.
@@ -527,8 +545,7 @@ VMR Program version """+version+""" - 23 jun 2025
                         polymerase_prot_annot_count += 1
                     elif definitive_protein_name == "Major capsid protein": 
                         capsid_prot_annot_count += 1
-                    logging.info(f'Protein annotated as {definitive_protein_name} was found on GenBank ID: {protein}')
-                    logging.info(f'')
+                    logging.info(f'Protein annotated as {definitive_protein_name} was found on GenBank ID: {protein}\n')
                
                 #print(positive_terms[j])
         # Similarity protocol: identifies proteins by similarity 
@@ -540,15 +557,14 @@ VMR Program version """+version+""" - 23 jun 2025
                     #blast_db = make_blast_db(database)
                     protein = blast_plus(database,fasta_file)
                     fasta_protein_s = marker_fasta(fasta_file, protein, dir_marker_final, genus, family)
-                    if protein == None:
+                    if protein is None:
                         if definitive_protein_name == "Ribonucleoside-diphosphate reductase large subunit":
                             reductase_no_prot_blast_count += 1
                         elif definitive_protein_name == "DNA-directed DNA polymerase":
                             polymerase_no_prot_blast_count += 1
                         elif definitive_protein_name == "Major capsid protein": 
                             capsid_no_prot_blast_count += 1
-                        logging.info(f'No hit found for {definitive_protein_name}.')
-                        logging.info(f'')
+                        logging.info(f'No hit found for {definitive_protein_name}.\n')
                     else:
                         if definitive_protein_name == "Ribonucleoside-diphosphate reductase large subunit":
                             reductase_prot_blast_count += 1
@@ -556,8 +572,7 @@ VMR Program version """+version+""" - 23 jun 2025
                             polymerase_prot_blast_count += 1
                         elif definitive_protein_name == "Major capsid protein": 
                             capsid_prot_blast_count += 1
-                        logging.info(f'Positive protein for {definitive_protein_name} found: {protein}')
-                        logging.info(f'')
+                        logging.info(f'Positive protein for {definitive_protein_name} found: {protein}.\n')
                     #print(type(protein))
 
 
@@ -569,11 +584,12 @@ VMR Program version """+version+""" - 23 jun 2025
                 line['tax_id'] = txid[j]
                 new_tableX.append(line)
 
-        final_table = f'VMR+_{str(args.i)}'
+        #final_table = f'VMR+_{str(args.i)}'
+        final_table = f'VMR+_{new_file}'
         table_file = os.path.join(final_dir,final_table)
 
-        logging.info("Saving all results…")
-        logging.info(f'')
+        logging.info("Saving all results…\n")
+        
         new_tableX = pd.DataFrame(new_tableX)
         new_tableX.to_csv(table_file, sep=';', index=False)
 
@@ -584,24 +600,21 @@ VMR Program version """+version+""" - 23 jun 2025
         df = df[new_order]
         df.to_csv(table_file, index=False, sep=';')
 
-        logging.info('Generating final report…')
-        logging.info(f'')
+        logging.info('Generating final report…\n')
         logging.info('Final report')
-        logging.info(f'Total # of genome processed sequences: {genome_conter}')
-        logging.info(f'')
-        logging.info(f'Major capsid')
+        logging.info(f'Total # of genome processed sequences: {genome_conter}\n')
+        logging.info('Major capsid')
         logging.info(f' Detected by annotation terms: {capsid_prot_annot_count}')
         logging.info(f' Detected by similarity search:{capsid_prot_blast_count} ')
         logging.info(f' Undetected: {capsid_no_prot_blast_count}')
-        logging.info(f'DNA polymerase')
+        logging.info('DNA polymerase')
         logging.info(f' Detected by annotation terms: {polymerase_prot_annot_count}')
         logging.info(f' Detected by similarity search: {polymerase_prot_blast_count}')
         logging.info(f' Undetected: {polymerase_no_prot_blast_count}')
-        logging.info(f'Ribonucleoside diphosphate reductase')
+        logging.info('Ribonucleoside diphosphate reductase')
         logging.info(f' Detected by annotation terms: {reductase_prot_annot_count}')
         logging.info(f' Detected by similarity search: {reductase_prot_blast_count}')
-        logging.info(f' Undetected: {reductase_no_prot_blast_count}')
-        logging.info(f'')
+        logging.info(f' Undetected: {reductase_no_prot_blast_count}\n')
         logging.info(f'Total number of  proteins detected by annotation terms: {capsid_prot_annot_count+reductase_prot_annot_count+polymerase_prot_annot_count}')
         logging.info(f'Total number of  proteins detected by similarity search: {capsid_prot_blast_count+reductase_prot_blast_count+polymerase_prot_blast_count}')
         logging.info(f'Total number of undetected proteins: {capsid_no_prot_blast_count+reductase_no_prot_blast_count+polymerase_no_prot_blast_count}')
