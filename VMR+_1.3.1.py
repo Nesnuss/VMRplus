@@ -19,9 +19,9 @@ from pathlib import Path
 
 
 
-version = "1.3.0"
+version = "1.3.1"
 help = """
-VMR Program version """+version+""" -  jun 2025
+VMR Program version """+version+""" -  jul 2025
 
 Generate an incremented table of the ICTV's VMR/MSL table
 
@@ -424,8 +424,10 @@ VMR Program version """+version+""" - 23 jun 2025
 """)
     else:
         start_time = time.perf_counter()
-        # Selects the files that will be used.
         logging.info("Starting execution…")
+
+        # Selects the files that will be used.
+
         input_file = args.i
         #print(input_file)
         sheet = args.s-1
@@ -434,7 +436,7 @@ VMR Program version """+version+""" - 23 jun 2025
         #print(df)
         file = Path(input_file)
         #print(file)
-        new_file = file.with_suffix(".CSV")
+        new_file = file.with_suffix(".csv")
         #print(new_file)
         csv_file = os.path.join(final_dir, new_file)
         #print(csv_file)
@@ -455,15 +457,11 @@ VMR Program version """+version+""" - 23 jun 2025
         parent = tableY['Parent']
 
         #counters
-        reductase_prot_annot_count = 0
-        reductase_prot_blast_count = 0
-        reductase_no_prot_blast_count = 0
-        polymerase_prot_annot_count = 0
-        polymerase_prot_blast_count = 0
-        polymerase_no_prot_blast_count = 0
-        capsid_prot_annot_count = 0
-        capsid_prot_blast_count = 0
-        capsid_no_prot_blast_count = 0
+        positive_terms_list = positive_terms.tolist()
+        positive_dict = {}
+
+        for protein_marker in positive_terms_list:
+            positive_dict[protein_marker] = [0,0,0]
 
         # os.makedirs(args.o, exist_ok=True)
 
@@ -539,12 +537,8 @@ VMR Program version """+version+""" - 23 jun 2025
                 if protein == []:
                     logging.info(f'No protein annotated as {definitive_protein_name} was found on GenBank ID {code}.')
                 else:
-                    if definitive_protein_name == "Ribonucleoside-diphosphate reductase large subunit":
-                        reductase_prot_annot_count += 1
-                    elif definitive_protein_name == "DNA-directed DNA polymerase":
-                        polymerase_prot_annot_count += 1
-                    elif definitive_protein_name == "Major capsid protein": 
-                        capsid_prot_annot_count += 1
+                    positive_dict[positive_terms[j]][0] += 1
+
                     logging.info(f'Protein annotated as {definitive_protein_name} was found on GenBank ID: {protein}\n')
                
                 #print(positive_terms[j])
@@ -558,20 +552,12 @@ VMR Program version """+version+""" - 23 jun 2025
                     protein = blast_plus(database,fasta_file)
                     fasta_protein_s = marker_fasta(fasta_file, protein, dir_marker_final, genus, family)
                     if protein is None:
-                        if definitive_protein_name == "Ribonucleoside-diphosphate reductase large subunit":
-                            reductase_no_prot_blast_count += 1
-                        elif definitive_protein_name == "DNA-directed DNA polymerase":
-                            polymerase_no_prot_blast_count += 1
-                        elif definitive_protein_name == "Major capsid protein": 
-                            capsid_no_prot_blast_count += 1
+                        positive_dict[positive_terms[j]][2] += 1
+
                         logging.info(f'No hit found for {definitive_protein_name}.\n')
                     else:
-                        if definitive_protein_name == "Ribonucleoside-diphosphate reductase large subunit":
-                            reductase_prot_blast_count += 1
-                        elif definitive_protein_name == "DNA-directed DNA polymerase":
-                            polymerase_prot_blast_count += 1
-                        elif definitive_protein_name == "Major capsid protein": 
-                            capsid_prot_blast_count += 1
+                        positive_dict[positive_terms[j]][1] += 1
+
                         logging.info(f'Positive protein for {definitive_protein_name} found: {protein}.\n')
                     #print(type(protein))
 
@@ -603,24 +589,26 @@ VMR Program version """+version+""" - 23 jun 2025
         logging.info('Generating final report…\n')
         logging.info('Final report')
         logging.info(f'Total # of genome processed sequences: {genome_conter}\n')
-        logging.info('Major capsid')
-        logging.info(f' Detected by annotation terms: {capsid_prot_annot_count}')
-        logging.info(f' Detected by similarity search:{capsid_prot_blast_count} ')
-        logging.info(f' Undetected: {capsid_no_prot_blast_count}')
-        logging.info('DNA polymerase')
-        logging.info(f' Detected by annotation terms: {polymerase_prot_annot_count}')
-        logging.info(f' Detected by similarity search: {polymerase_prot_blast_count}')
-        logging.info(f' Undetected: {polymerase_no_prot_blast_count}')
-        logging.info('Ribonucleoside diphosphate reductase')
-        logging.info(f' Detected by annotation terms: {reductase_prot_annot_count}')
-        logging.info(f' Detected by similarity search: {reductase_prot_blast_count}')
-        logging.info(f' Undetected: {reductase_no_prot_blast_count}\n')
-        logging.info(f'Total number of  proteins detected by annotation terms: {capsid_prot_annot_count+reductase_prot_annot_count+polymerase_prot_annot_count}')
-        logging.info(f'Total number of  proteins detected by similarity search: {capsid_prot_blast_count+reductase_prot_blast_count+polymerase_prot_blast_count}')
-        logging.info(f'Total number of undetected proteins: {capsid_no_prot_blast_count+reductase_no_prot_blast_count+polymerase_no_prot_blast_count}')
 
-        
+        sum_annot = 0
+        sum_sim = 0
+        sum_undetcted = 0 
 
+        for term in positive_dict:
+            
+            logging.info(f'{" ".join(term.split())}')
+            logging.info(f' Detected by annotation terms: {positive_dict[term][0]}')
+            logging.info(f' Detected by similarity search:{positive_dict[term][1]} ')
+            logging.info(f' Undetected: {positive_dict[term][2]}\n')
+
+            sum_annot += positive_dict[term][0]
+            sum_sim += positive_dict[term][1]
+            sum_undetcted += positive_dict[term][2] 
+
+
+        logging.info(f'Total number of  proteins detected by annotation terms: {sum_annot}')
+        logging.info(f'Total number of  proteins detected by similarity search: {sum_sim}')
+        logging.info(f'Total number of undetected proteins: {sum_undetcted}')
 
 
         # Measuring the total execution time.
