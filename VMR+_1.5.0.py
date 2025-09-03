@@ -14,12 +14,12 @@ import http.client
 import urllib.error
 import logging
 from pathlib import Path
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+import re
 
 
-
-
-
-version = "1.3.1"
+version = "1.5.0"
 help = """
 VMR Program version """+version+""" -  jul 2025
 
@@ -386,8 +386,64 @@ def unique_dir(base_dir):
         counter += 1
         new_dir = f"{base_dir}{counter}"
     return new_dir
+    
+def hyperlink_Protein_ID(protein_id):
+    try:
+        if protein == []:
+            return
+        elif protein is None:
+            return 
+        else:
+            protein_id = str(protein_id).strip()
+            hyperlink = f"https://www.ncbi.nlm.nih.gov/protein/{protein_id}"
+            return hyperlink
+    except Exception:
+        return 
+    
+def hyperlink_code(genome_code):
+    try:
+        code = str(genome_code).strip()
+        hyperlink = f"https://www.ncbi.nlm.nih.gov/nuccore/{code}"
+        return hyperlink
+    except Exception:
+        return
+
+def hyperlink_extrator(ws, col_name, ictv_id):
+
+    code_ictv = str(ictv_id).strip()
+    print(code_ictv)
+    
+    data = []  
+    
+    for col in range(1, ws.max_column + 1):
+        if ws.cell(row=1, column=col).value == col_name:
+            letra = get_column_letter(col)
+            hyperlink_form_default = re.compile(r'HYPERLINK\("([^"]+)"(?:,\s*"([^"]*)")?\)', re.IGNORECASE)
+            
+            for cell in ws[letra][1:]:
+                if cell.value and code_ictv in str(cell.value):
+                    # print(cell.value)
+                    link = None  
+
+                    if cell.hyperlink:
+                        link = cell.hyperlink.target
+                        # print("hyperlink")
+                    elif cell.data_type == 'f' and cell.value:
+                        match = hyperlink_form_default.search(cell.value)
+                        if match:
+                            link = match.group(1)
+                            # print("formula")
+                    if link:
+                        data.append(link)
+            break  
+    
+    if data:
+        return data[0]
+    else:
+        return None  
 
 
+    
 parser = argparse.ArgumentParser(add_help=False, formatter_class=RawTextHelpFormatter)
 parser.add_argument('-i')
 parser.add_argument("-o", "--output", default= 'output_dir')
@@ -395,6 +451,7 @@ parser.add_argument('-h', '--help', action='store_true')
 parser.add_argument('-v', '--version', action='store_true')
 parser.add_argument('-t')
 parser.add_argument('-s', type = int, default = 1)
+parser.add_argument('-ts', type = int, default = 1)
 args = parser.parse_args()
 
 final_dir = unique_dir(args.output)
@@ -424,28 +481,49 @@ VMR Program version """+version+""" - 23 jun 2025
 """)
     else:
         start_time = time.perf_counter()
-        logging.info("Starting execution…")
-
         # Selects the files that will be used.
-
+        logging.info("Starting execution…")
+        
+        # Create a .csv file for the VMR/MSL table
         input_file = args.i
         #print(input_file)
         sheet = args.s-1
         #print(sheet_name)
-        df = pd.read_excel(input_file, sheet_name=sheet )
-        #print(df)
+        wb = load_workbook(input_file)
+        ws = wb.worksheets[sheet]
+
+        # wb.save(output_path)
+        
+        df_xl = pd.read_excel(input_file, sheet_name=sheet )
+        #print(df_xl)
         file = Path(input_file)
         #print(file)
         new_file = file.with_suffix(".csv")
         #print(new_file)
-        csv_file = os.path.join(final_dir, new_file)
+        csv_file = os.path.join(final_dir, new_file.name)
         #print(csv_file)
-        df.to_csv(csv_file, sep=";", index=False)
-        logging.info(f"{input_file} to {new_file} conversion")
+        df_xl.to_csv(csv_file, sep=";", index=False)
+        logging.info(f"{input_file.name} to {new_file.name} conversion")
+
+        # Creat a .csv file for the table terms
+        term_file = args.t
+        #print(input_file)
+        term_sheet = args.ts-1
+        #print(sheet_name)
+        term_df_xl = pd.read_excel(term_file, sheet_name=term_sheet )
+        #print(df_xl)
+        tfile = Path(term_file)
+        #print(file)
+        term_new_file = tfile.with_suffix(".csv")
+        #print(new_file)
+        term_csv_file = os.path.join(final_dir, term_new_file.name)
+        #print(csv_file)
+        term_df_xl.to_csv(term_csv_file, sep=";", index=False)
+        logging.info(f"{term_file.name} to {term_new_file.name} conversion")
 
 
         tableX = pd.DataFrame(pd.read_csv(csv_file, delimiter=';'))
-        tableY = pd.read_csv(args.t, delimiter=';')
+        tableY = pd.read_csv(term_csv_file, delimiter=';')
         # Selecting the columns and count the different itens
         genome_conter = tableX['Virus GENBANK accession'].nunique()
         # Selecting the columns.
@@ -456,12 +534,14 @@ VMR Program version """+version+""" - 23 jun 2025
         max_len = tableY['max_length']
         parent = tableY['Parent']
 
-        #counters
+        # dict. counters
         positive_terms_list = positive_terms.tolist()
         positive_dict = {}
 
         for protein_marker in positive_terms_list:
             positive_dict[protein_marker] = [0,0,0]
+
+            
 
         # os.makedirs(args.o, exist_ok=True)
 
@@ -489,14 +569,19 @@ VMR Program version """+version+""" - 23 jun 2025
         #Central loop; runs both the default protocol and the functional annotation protocol.
         for i in range(len(tableX)):
             for j in range(len(tableY)):
+
+
                 line = dict(tableX.iloc[i])
-                code = line.get("Virus GENBANK accession", "")
+
+                genome_code = line.get("Virus GENBANK accession", "")
                 genus = line.get("Genus", "")
                 Class = line.get("Class", "")
                 family = line.get("Family", "")
                 #print(type(family))
                 #print(f'FAMILY: {family}')
                 subfamily = line.get("Subfamily", "")
+                ictv_id = line.get("ICTV_ID", "")
+
                 if isinstance(family, str):
                     family = family
                 elif isinstance(family, float) and isinstance(subfamily, str):
@@ -510,7 +595,7 @@ VMR Program version """+version+""" - 23 jun 2025
 
                 # make join in building of file for protein names
 
-                logging.info(f"Processing GenBank ID {code} with {definitive_protein_name} as an annotation term")
+                logging.info(f"Processing GenBank ID {genome_code} with {definitive_protein_name} as an annotation term")
 
                 dir_genome = os.path.join(final_dir,"cds_virus_fasta")
                 dir_genome_final = os.path.join(dir_genome, family, genus)
@@ -527,15 +612,19 @@ VMR Program version """+version+""" - 23 jun 2025
                 os.makedirs(dir_genome, exist_ok=True)
                 os.makedirs(dir_genome_final, exist_ok=True)
 
+                ictv_id_url = hyperlink_extrator(ws, "ICTV_ID", ictv_id)
+                genome_code_url = hyperlink_code(genome_code)
+
         # Default protocol: retrieves the accession_code_protein.
-                Gi = busca_entrez(code)
+                Gi = busca_entrez(genome_code)
                 #print(Gi)
                 protein = filtered_search(Gi, [positive_terms[j]], [negative_terms[j]], min_len[j], max_len[j])
-                fasta_file = cds_prot(Gi, dir_genome_final, code)
+                protein_url = hyperlink_Protein_ID(protein)
+                fasta_file = cds_prot(Gi, dir_genome_final, genome_code)
                 number_prot = counter_prot(fasta_file)
                 fasta_protein = marker_fasta(fasta_file, protein, dir_marker_final, genus, family)
                 if protein == []:
-                    logging.info(f'No protein annotated as {definitive_protein_name} was found on GenBank ID {code}.')
+                    logging.info(f'No protein annotated as {definitive_protein_name} was found on GenBank ID {genome_code}.')
                 else:
                     positive_dict[positive_terms[j]][0] += 1
 
@@ -550,8 +639,11 @@ VMR Program version """+version+""" - 23 jun 2025
                     database = refdb(positive_terms[j],txid[j],Class, dir_refdb_info_final, protein_name, min_len[j], max_len[j])
                     #blast_db = make_blast_db(database)
                     protein = blast_plus(database,fasta_file)
+                    protein_url = hyperlink_Protein_ID(protein)
+
                     fasta_protein_s = marker_fasta(fasta_file, protein, dir_marker_final, genus, family)
                     if protein is None:
+
                         positive_dict[positive_terms[j]][2] += 1
 
                         logging.info(f'No hit found for {definitive_protein_name}.\n')
@@ -568,23 +660,67 @@ VMR Program version """+version+""" - 23 jun 2025
                 line['Positive_Terms'] = positive_terms[j]
                 line['Protein_codes'] = protein if protein else ""
                 line['tax_id'] = txid[j]
+                line['ICVT_ID link'] = ictv_id_url
+                line['Acessions Link link'] = genome_code_url
+                line['Protein ID link'] = protein_url if protein_url else ""
                 new_tableX.append(line)
 
         #final_table = f'VMR+_{str(args.i)}'
-        final_table = f'VMR+_{new_file}'
-        table_file = os.path.join(final_dir,final_table)
+        final_table_csv = f'VMR+_{new_file.name}'
+        table_file = os.path.join(final_dir,final_table_csv)
 
         logging.info("Saving all results…\n")
         
         new_tableX = pd.DataFrame(new_tableX)
         new_tableX.to_csv(table_file, sep=';', index=False)
 
-        df = pd.read_csv(table_file, delimiter=';')
+        df_csv = pd.read_csv(table_file, delimiter=';')
 
-        new_order = ['Isolate ID','Species Sort', 'Isolate Sort', 'Realm', 'Subrealm', 'Kingdom', 'Subkingdom', 'Phylum', 'Subphylum', 'Class', 'Subclass', 'Order', 'Suborder', 'Family', 'Subfamily', 'Genus', 'Subgenus', 'Species','ICTV_ID', 'Exemplar or additional isolate', 'Virus name(s)', 'Virus name abbreviation(s)', 'Virus isolate designation', 'Virus GENBANK accession', 'tax_id', 'Positive_Terms','Negative_Terms','min_length','max_length', 'Protein_codes', 'Genome coverage', 'Genome', 'Host source','Accessions Link']
-  
-        df = df[new_order]
-        df.to_csv(table_file, index=False, sep=';')
+        new_order = ['Isolate ID','Species Sort', 'Isolate Sort', 'Realm',
+                    'Subrealm', 'Kingdom', 'Subkingdom', 'Phylum', 'Subphylum',
+                    'Class', 'Subclass', 'Order', 'Suborder', 'Family', 'Subfamily',
+                    'Genus', 'Subgenus', 'Species','ICTV_ID', 'ICVT_ID link',
+                    'Exemplar or additional isolate', 'Virus name(s)',
+                    'Virus name abbreviation(s)', 'Virus isolate designation',
+                    'Virus GENBANK accession', 'tax_id', 'Positive_Terms',
+                    'Negative_Terms','min_length','max_length', 'Protein_codes',
+                    'Protein ID link', 'Genome coverage', 'Genome', 'Host source',
+                    'Accessions Link', 'Acessions Link link']  
+        
+        df_csv = df_csv[new_order]
+        df_csv.to_csv(table_file, index=False, sep=';')
+
+        final_table_xl = f'VMR+_{input_file}'
+        output_path = os.path.join(final_dir, final_table_xl)
+        logging.info('Generating .xlsx file\n')
+
+        csv_file = Path(table_file)
+        df_xl_final = pd.read_csv(csv_file, delimiter=';')
+        xlsx_file = csv_file.with_suffix('.xlsx')
+        df_xl_final.to_excel(xlsx_file, index=False)
+
+        wb_final_table = load_workbook(xlsx_file)
+        ws_final_table = wb_final_table.worksheets[0]
+    
+        for col in range(1, ws_final_table.max_column + 1):
+            if " link" in ws_final_table.cell(row=1, column=col).value:
+                letter_col = get_column_letter(col)            
+                for cell in ws_final_table[letter_col][1:]:
+                    
+                    coordinate = list(cell.coordinate)
+                    letters = ''.join([char for char in coordinate if char.isalpha()])
+                    if len(letters) >= 2:
+                        letter_number_trasformer = ord(coordinate[len(letters)-1].lower()) - ord('a') + 1
+                        letter_coord = get_column_letter(letter_number_trasformer-1)
+                        final_coordinate = coordinate[0] + letter_coord + ''.join(coordinate[2:])
+                    else:
+                        letter_number_trasformer = ord(coordinate[0].lower()) - ord('a') + 1
+                        letter_coord = get_column_letter(letter_number_trasformer-1)
+                        final_coordinate = letter_coord + ''.join(coordinate[1:])
+
+                    ws_final_table[final_coordinate].hyperlink = cell.value
+        
+        wb_final_table.save(xlsx_file)
 
         logging.info('Generating final report…\n')
         logging.info('Final report')
@@ -609,7 +745,6 @@ VMR Program version """+version+""" - 23 jun 2025
         logging.info(f'Total number of  proteins detected by annotation terms: {sum_annot}')
         logging.info(f'Total number of  proteins detected by similarity search: {sum_sim}')
         logging.info(f'Total number of undetected proteins: {sum_undetcted}')
-
 
         # Measuring the total execution time.
 
