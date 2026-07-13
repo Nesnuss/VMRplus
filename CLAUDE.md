@@ -78,7 +78,9 @@ Flow (key functions):
 - **External binaries (on `PATH`)** — NCBI BLAST+ (`makeblastdb`, `blastp`), MAFFT
   (`mafft-linsi`), `tabajara.pl` (Perl) which calls HMMER (`hmmbuild`).
 - **Orchestrator** — none (Snakemake/Nextflow absent; it is a script).
-- **Environment** — conda/mamba/venv **TBD** (no `environment.yml`/lockfile).
+- **Environment** — **venv** (stdlib `python3 -m venv`) for the Python libs only; the
+  external binaries above are **not** managed by venv and must be on `PATH` separately
+  (system package manager or bioconda). Pinned `requirements.txt`: TBD.
 - **Tool versions** — **TBD** (nothing pinned; see §8).
 
 ## 5. Essential commands
@@ -96,7 +98,9 @@ python3 "VMR+_1.7.14.py" -h        # help
 python3 "VMR+_1.7.14.py" -v        # version
 ```
 - `-i` and `-t` are required; sheets are 1-based. `-c` is mutually exclusive with `-i -o -s -t -ts`.
-- **Environment setup** — **TBD** (recommended: `environment.yml` with pins).
+- **Environment setup** — `python3 -m venv .venv && source .venv/bin/activate &&
+  pip install -r requirements.txt` (installs Python libs only). Install BLAST+, MAFFT,
+  HMMER and `tabajara.pl` separately and ensure they are on `PATH`.
 - **Tests** — **TBD** (no suite).
 - **Lint/format** — **TBD** (no `.pre-commit-config`, ruff, black, etc.).
 - **Run a single step** — **TBD** (pipeline exposes no subcommands; it is a single flow).
@@ -160,7 +164,8 @@ python3 "VMR+_1.7.14.py" -v        # version
 
 ### Items flagged "TBD" (for you to complete)
 1. **Exact Python version** and lib pins (`pandas`/`biopython`/`openpyxl`).
-2. **Environment manager** (conda/mamba/venv) + `environment.yml`/lockfile.
+2. **Environment manager** — decided: **venv**. Still TBD: a pinned `requirements.txt`
+   (and how the external binaries get installed on `PATH`).
 3. **Pinned versions** of BLAST+, MAFFT, HMMER, and `tabajara.pl` (+ where to obtain `tabajara.pl`).
 4. **Environment setup** (single install command).
 5. **Tests** (framework, command, minimal example data).
