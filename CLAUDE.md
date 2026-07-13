@@ -139,7 +139,8 @@ python3 "VMR+_1.7.14.py" -v        # version
 - **FASTA padding** — `pad_marker_fastas()` duplicates sequences up to >5 for MAFFT/tabajara;
   this is intentional, do not "fix" it as an accidental duplicate.
 - **Large files** — `refdb/`, `markers/`, `genome_data/`, `.hmm`, output `.xlsx`, and the
-  entire output directory **must not be committed**. **`.gitignore`: TBD** (create one).
+  entire output directory **must not be committed** (covered by `.gitignore`). Note it also
+  ignores `*.xlsx`/`*.csv`/`*.fasta` broadly — force-add example input data with `git add -f` if needed.
 - **Credentials in the template** — `TEMPLATE_CONFIG` contains a hardcoded example email +
   API key; do not treat them as real secrets nor add new secrets to the template.
 
@@ -164,5 +165,5 @@ python3 "VMR+_1.7.14.py" -v        # version
 4. **Environment setup** (single install command).
 5. **Tests** (framework, command, minimal example data).
 6. **Lint/format** (ruff/black/pre-commit) — if desired.
-7. **`.gitignore`** covering `refdb/ markers/ genome_data/ *.hmm *.xlsx` and output directories.
+7. ~~**`.gitignore`** covering `refdb/ markers/ genome_data/ *.hmm *.xlsx` and output directories.~~ **Done.**
 8. **Decision on `hmmpress/hmmsearch/hmmscan`**: in scope or out?
