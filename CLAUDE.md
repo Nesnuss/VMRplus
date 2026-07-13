@@ -2,167 +2,167 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> Nota de fidelidade ao repo: este projeto é um **script único** (`VMR+_1.7.14.py`).
-> O agrupamento de proteínas é **taxonômico** (VMR `Family`→`Genus`), **não** há
-> clusterização por similaridade (MMseqs2/DIAMOND/CD-HIT). A construção de HMMs é
-> **delegada ao `tabajara.pl`** (que internamente chama `hmmbuild`); o pipeline **não**
-> executa `hmmpress`, `hmmsearch` nem `hmmscan`. Itens ainda inexistentes estão marcados
-> como **A DEFINIR**.
+> Repo-fidelity note: this project is a **single script** (`VMR+_1.7.14.py`).
+> Protein grouping is **taxonomic** (VMR `Family`→`Genus`); there is **no**
+> similarity clustering (MMseqs2/DIAMOND/CD-HIT). HMM construction is
+> **delegated to `tabajara.pl`** (which internally calls `hmmbuild`); the pipeline
+> does **not** run `hmmpress`, `hmmsearch`, or `hmmscan`. Things that do not yet
+> exist are flagged as **TBD** (A DEFINIR).
 
-## 1. Visão geral
+## 1. Overview
 
-- Enriqueça a tabela de taxonomia viral do ICTV (VMR/MSL, `.xlsx`) com marcadores
-  proteicos táxon-específicos baixados do NCBI.
-- Para cada par (genoma × proteína-alvo), busque proteínas no Entrez, faça `blastp`
-  contra uma base de referência da família e extraia o marcador correspondente.
-- Agrupe os marcadores por família/genus, alinhe com MAFFT e construa HMMs de perfil
-  (via `tabajara.pl`) em modo conservador e discriminatório.
-- Emita uma **tabela VMR+ incrementada** (CSV + `.xlsx` com hyperlinks) e uma árvore de
-  HMMs por família/genus, mais relatórios de rastreabilidade.
+- Enrich the ICTV viral-taxonomy table (VMR/MSL, `.xlsx`) with taxon-specific
+  protein markers downloaded from NCBI.
+- For each (genome × target-protein) pair, search proteins on Entrez, run `blastp`
+  against a family reference database, and extract the corresponding marker.
+- Group markers by family/genus, align with MAFFT, and build profile HMMs
+  (via `tabajara.pl`) in conservative and discriminatory modes.
+- Emit an **incremented VMR+ table** (CSV + `.xlsx` with hyperlinks) and a tree of
+  HMMs per family/genus, plus traceability reports.
 
-## 2. Glossário de domínio
+## 2. Domain glossary
 
-- **ICTV** — International Committee on Taxonomy of Viruses; define a taxonomia viral oficial.
-- **VMR / MSL** — Virus Metadata Resource / Master Species List: planilha do ICTV com um
-  isolado exemplar por espécie e suas accessions GenBank. É a entrada `-i` (aba/coluna 1-based).
-- **accession / exemplar** — identificador GenBank de um genoma; o "exemplar" é o isolado
-  representativo da espécie listado no VMR.
-- **marcador táxon-específico** — proteína que serve de assinatura para um dado táxon
-  (aqui, definida pelos `Positive_terms`/`Negative_terms` da tabela de termos, não por clustering).
-- **MSA** — alinhamento múltiplo de sequências (produzido aqui por `mafft-linsi`).
-- **HMM de perfil** — modelo probabilístico de uma coluna-a-coluna de um MSA; captura
-  conservação por posição. Arquivo `.hmm`.
-- **HMMER** — suíte que manipula HMMs de perfil:
-  - `hmmbuild` — constrói um `.hmm` a partir de um MSA. **Único invocado aqui, e apenas
-    indiretamente via `tabajara.pl`.**
-  - `hmmpress` / `hmmsearch` / `hmmscan` — comprime uma base de HMMs / busca HMMs contra
-    sequências / busca sequências contra uma base de HMMs. **Não usados neste repo** (o
-    pipeline gera HMMs, não os aplica). Ver "A DEFINIR".
-- **formato Stockholm (`.sto`)** — formato de MSA anotado usado pelo HMMER. **Não gerado
-  diretamente aqui** (MAFFT emite FASTA alinhado; `tabajara.pl` faz a ponte até `hmmbuild`).
-- **tabajara.pl** — ferramenta Perl externa que, a partir do MSA, seleciona blocos e chama
-  `hmmbuild`. Modos: `-m c` (conservador) e `-m d` (discriminatório).
+- **ICTV** — International Committee on Taxonomy of Viruses; defines the official viral taxonomy.
+- **VMR / MSL** — Virus Metadata Resource / Master Species List: the ICTV spreadsheet with one
+  exemplar isolate per species and its GenBank accessions. It is the `-i` input (sheet/column 1-based).
+- **accession / exemplar** — GenBank identifier of a genome; the "exemplar" is the
+  representative isolate of the species listed in the VMR.
+- **taxon-specific marker** — a protein that acts as a signature for a given taxon
+  (here defined by the `Positive_terms`/`Negative_terms` of the terms table, not by clustering).
+- **MSA** — multiple sequence alignment (produced here by `mafft-linsi`).
+- **profile HMM** — probabilistic column-by-column model of an MSA; captures
+  per-position conservation. A `.hmm` file.
+- **HMMER** — suite that manipulates profile HMMs:
+  - `hmmbuild` — builds a `.hmm` from an MSA. **The only one invoked here, and only
+    indirectly via `tabajara.pl`.**
+  - `hmmpress` / `hmmsearch` / `hmmscan` — compress an HMM database / search HMMs against
+    sequences / search sequences against an HMM database. **Not used in this repo** (the
+    pipeline generates HMMs, it does not apply them). See "TBD".
+- **Stockholm format (`.sto`)** — annotated MSA format used by HMMER. **Not generated
+  directly here** (MAFFT emits aligned FASTA; `tabajara.pl` bridges to `hmmbuild`).
+- **tabajara.pl** — external Perl tool that, from the MSA, selects blocks and calls
+  `hmmbuild`. Modes: `-m c` (conservative) and `-m d` (discriminatory).
 
-## 3. Arquitetura e estrutura de diretórios
+## 3. Architecture and directory structure
 
-Repositório (tudo versionado hoje):
+Repository (everything currently versioned):
 ```
-VMR+_1.7.14.py   # pipeline monolítico (versão no nome do arquivo e na var `version`)
-README.md        # 2 linhas
-CLAUDE.md        # este arquivo
+VMR+_1.7.14.py   # monolithic pipeline (version in the filename and in the `version` var)
+README.md        # 2 lines
+CLAUDE.md        # this file
 ```
-O orquestrador é o bloco `if __name__ == '__main__':` (~linha 2412). Saídas são geradas em
-um diretório de saída auto-sufixado por `unique_dir()`, contendo `VMR.log`, `refdb/`,
-`markers/`, `genome_data/` (se `-gb yes`), subárvores `tabajara_family/` e `tabajara_genera/`,
-`report_hmms.csv/.xlsx`, e `VMR+_<input>.xlsx`.
+The orchestrator is the `if __name__ == '__main__':` block (~line 2412). Outputs are generated
+in an output directory auto-suffixed by `unique_dir()`, containing `VMR.log`, `refdb/`,
+`markers/`, `genome_data/` (if `-gb yes`), the `tabajara_family/` and `tabajara_genera/`
+subtrees, `report_hmms.csv/.xlsx`, and `VMR+_<input>.xlsx`.
 
-Fluxo (funções-chave):
-1. **Args/config** — `load_config()`; conflito CLI×config em `detect_cli_config_conflict()`.
-2. **Ingestão** — `.xlsx` → CSV `;`-delimitado → DataFrames `tableX` (genomas) e `tableY`
-   (termos); worksheet `ws` mantido read-only para extração de hyperlink.
-3. **Bases de referência** — `refdb` → `make_blast_db` por linha de termos.
-4. **Loop principal (genoma × proteína)** — pareado por `tableX['Family']==tableY['Name']`:
-   `search_entrez` → `cds_prot` → `blast_plus` (`blastp`) → `marker_fasta`. Sequencial
-   (`for i/for j`) ou paralelo (`run_parallel_pipeline` + `_process_single_task`).
-5. **Pós-processamento por família/genus** — `pad_marker_fastas()` (duplica até >5 seqs),
+Flow (key functions):
+1. **Args/config** — `load_config()`; CLI×config conflict in `detect_cli_config_conflict()`.
+2. **Ingestion** — `.xlsx` → `;`-delimited CSV → DataFrames `tableX` (genomes) and `tableY`
+   (terms); worksheet `ws` kept read-only for hyperlink extraction.
+3. **Reference databases** — `refdb` → `make_blast_db` per terms row.
+4. **Main loop (genome × protein)** — paired by `tableX['Family']==tableY['Name']`:
+   `search_entrez` → `cds_prot` → `blast_plus` (`blastp`) → `marker_fasta`. Sequential
+   (`for i/for j`) or parallel (`run_parallel_pipeline` + `_process_single_task`).
+5. **Per-family/genus post-processing** — `pad_marker_fastas()` (duplicates up to >5 seqs),
    `run_mafft()`, `run_tabajara_con()`/`run_tabajara_dis()`.
-6. **Coleta/relatórios** — `collect_and_rename_hmms()`, `report_hmms.*`, tabela final
-   reordenada para `new_order` com hyperlinks embutidos.
+6. **Collection/reports** — `collect_and_rename_hmms()`, `report_hmms.*`, final table
+   reordered to `new_order` with embedded hyperlinks.
 
-## 4. Stack e dependências
+## 4. Stack and dependencies
 
-- **Python** — `#!/usr/bin/env python3`; usa f-strings, `pathlib`, `concurrent.futures`,
-  `fcntl` (Linux). Requer **3.6+**; **versão exata: A DEFINIR** (sem pin no repo).
-- **Libs Python** (sem `requirements.txt`) — `pandas`, `biopython` (`Bio.Entrez`,
+- **Python** — `#!/usr/bin/env python3`; uses f-strings, `pathlib`, `concurrent.futures`,
+  `fcntl` (Linux). Requires **3.6+**; **exact version: TBD** (no pin in the repo).
+- **Python libs** (no `requirements.txt`) — `pandas`, `biopython` (`Bio.Entrez`,
   `Bio.SeqIO`), `openpyxl`. Stdlib: `argparse`, `configparser`, `subprocess`, `threading`.
-- **Binários externos (no `PATH`)** — NCBI BLAST+ (`makeblastdb`, `blastp`), MAFFT
-  (`mafft-linsi`), `tabajara.pl` (Perl) que chama HMMER (`hmmbuild`).
-- **Orquestrador** — nenhum (Snakemake/Nextflow ausentes; é um script). 
-- **Ambiente** — conda/mamba/venv **A DEFINIR** (sem `environment.yml`/lockfile).
-- **Versões das ferramentas** — **A DEFINIR** (nada fixado; ver §8).
+- **External binaries (on `PATH`)** — NCBI BLAST+ (`makeblastdb`, `blastp`), MAFFT
+  (`mafft-linsi`), `tabajara.pl` (Perl) which calls HMMER (`hmmbuild`).
+- **Orchestrator** — none (Snakemake/Nextflow absent; it is a script).
+- **Environment** — conda/mamba/venv **TBD** (no `environment.yml`/lockfile).
+- **Tool versions** — **TBD** (nothing pinned; see §8).
 
-## 5. Comandos essenciais
+## 5. Essential commands
 
 ```bash
-# Executar (forma CLI) — sempre CITAR o nome do arquivo (contém '+')
+# Run (CLI form) — always QUOTE the filename (contains '+')
 python3 "VMR+_1.7.14.py" -i <VMR.xlsx> -t <terms.xlsx> -o <output_dir> \
     -s <sheet_num> -ts <terms_sheet_num> [-gb yes|no] [-thread N]
 
-# Executar (forma config)
-python3 "VMR+_1.7.14.py" --generate-config     # gera VMR_config_template.ini
+# Run (config form)
+python3 "VMR+_1.7.14.py" --generate-config     # generates VMR_config_template.ini
 python3 "VMR+_1.7.14.py" -c VMR_config.ini
 
-python3 "VMR+_1.7.14.py" -h        # ajuda
-python3 "VMR+_1.7.14.py" -v        # versão
+python3 "VMR+_1.7.14.py" -h        # help
+python3 "VMR+_1.7.14.py" -v        # version
 ```
-- `-i` e `-t` obrigatórios; sheets são 1-based. `-c` é mutuamente exclusivo com `-i -o -s -t -ts`.
-- **Setup do ambiente** — **A DEFINIR** (recomendado: `environment.yml` com pins).
-- **Testes** — **A DEFINIR** (não há suíte).
-- **Lint/format** — **A DEFINIR** (sem `.pre-commit-config`, ruff, black etc.).
-- **Rodar etapa isolada** — **A DEFINIR** (pipeline não expõe subcomandos; é um fluxo único).
+- `-i` and `-t` are required; sheets are 1-based. `-c` is mutually exclusive with `-i -o -s -t -ts`.
+- **Environment setup** — **TBD** (recommended: `environment.yml` with pins).
+- **Tests** — **TBD** (no suite).
+- **Lint/format** — **TBD** (no `.pre-commit-config`, ruff, black, etc.).
+- **Run a single step** — **TBD** (pipeline exposes no subcommands; it is a single flow).
 
-## 6. Fluxo de dados / formatos
+## 6. Data flow / formats
 
-- **Entrada VMR/MSL (`.xlsx`)** — colunas usadas incluem `Family`, `Subfamily`, `Genus`,
-  `Virus GENBANK accession`, `ICTV_ID`, etc. `Family` ausente cai para `Subfamily` e então
+- **VMR/MSL input (`.xlsx`)** — columns used include `Family`, `Subfamily`, `Genus`,
+  `Virus GENBANK accession`, `ICTV_ID`, etc. A missing `Family` falls back to `Subfamily` and then
   `'unclassified'`.
-- **Tabela de termos (`.xlsx`)** — colunas: `Name` (casada com `Family`), `tax_id`,
+- **Terms table (`.xlsx`)** — columns: `Name` (matched against `Family`), `tax_id`,
   `Positive_terms`, `Negative_terms`, `min_length`, `max_length`, `Parent`.
-- **Intermediários** — CSV `;`-delimitado; FASTA de proteínas por refdb/marcador; bases
-  BLAST (`makeblastdb`); FASTA alinhado (MAFFT); `tabajara.conf` gerado.
-- **Saídas** — `.hmm` sob `tabajara_family/.../valid_HMMs` e `tabajara_genera/<genus>/...`;
-  `report_hmms.csv/.xlsx` (colunas `Family;Genus;Marker;#sequences;#profile HMMs;Redundancy_Status`);
-  tabela final na ordem fixa `new_order` (CSV + `.xlsx` com `openpyxl.Hyperlink`).
+- **Intermediates** — `;`-delimited CSV; protein FASTA per refdb/marker; BLAST
+  databases (`makeblastdb`); aligned FASTA (MAFFT); generated `tabajara.conf`.
+- **Outputs** — `.hmm` under `tabajara_family/.../valid_HMMs` and `tabajara_genera/<genus>/...`;
+  `report_hmms.csv/.xlsx` (columns `Family;Genus;Marker;#sequences;#profile HMMs;Redundancy_Status`);
+  final table in the fixed `new_order` order (CSV + `.xlsx` with `openpyxl.Hyperlink`).
 
-## 7. Convenções de código
+## 7. Code conventions
 
-- **Nome do script** contém `+` e a versão está no nome + na var `version` — mantenha ambos em sincronia.
-- **Paths seguros** via `_safe_path_name()` / `_shorten_accession_filename()`; prefixo de
-  contador `VMR<7 dígitos>`.
-- **Parâmetros do tabajara** passam por `tabajara.conf` gerado (`write_tabajara_conf`), nunca
-  direto na linha de comando; defaults em `TABAJARA_CON_DEFAULTS` / `TABAJARA_DIS_DEFAULTS`.
-- **Config `.ini`** — seções `[general]`, `[tabajara_con]`, `[tabajara_dis]`; chaves
-  desconhecidas em `[general]` avisam e são descartadas; em `[tabajara_*]` são repassadas
-  verbatim ao `tabajara.pl` via `build_tabajara_args()`.
-- **Logging** em `VMR.log` dentro do diretório de saída.
+- **Script name** contains `+` and the version lives in both the name and the `version` var — keep them in sync.
+- **Safe paths** via `_safe_path_name()` / `_shorten_accession_filename()`; counter prefix
+  `VMR<7 digits>`.
+- **Tabajara parameters** go through a generated `tabajara.conf` (`write_tabajara_conf`), never
+  directly on the command line; defaults in `TABAJARA_CON_DEFAULTS` / `TABAJARA_DIS_DEFAULTS`.
+- **Config `.ini`** — sections `[general]`, `[tabajara_con]`, `[tabajara_dis]`; unknown keys
+  in `[general]` warn and are discarded; in `[tabajara_*]` they are forwarded
+  verbatim to `tabajara.pl` via `build_tabajara_args()`.
+- **Logging** to `VMR.log` inside the output directory.
 
-## 8. Reprodutibilidade e armadilhas
+## 8. Reproducibility and pitfalls
 
-- **Fixe versões** de BLAST+, MAFFT, HMMER e `tabajara.pl` (nenhuma está pinada hoje).
-- **NCBI/Entrez** — defina `Entrez.email` e (para paralelo) `Entrez.api_key`. Limite duro
+- **Pin versions** of BLAST+, MAFFT, HMMER, and `tabajara.pl` (none is pinned today).
+- **NCBI/Entrez** — set `Entrez.email` and (for parallel) `Entrez.api_key`. Hard limit
   10 req/s: `NCBIRateLimiter` (token-bucket) + `_rate_limited_entrez_call()`; `-thread N`
-  deve manter `N ≤ 10`. Sem API key o limite cai para 3 req/s.
-- **Determinismo** — resultados dependem do estado atual do NCBI (bancos remotos mudam);
-  não há seed. Assuma saídas não-idênticas entre execuções distantes no tempo.
-- **Paralelismo/memória** — cada task escreve em path único (`genome_code`+`genus`); `ws` e
-  `positive_dict` são read-only na fase paralela. `socket.setdefaulttimeout(120)` limita cada request.
-- **Padding de FASTA** — `pad_marker_fastas()` duplica sequências até >5 para MAFFT/tabajara;
-  isso é intencional, não corrija como "duplicata acidental".
-- **Arquivos grandes** — `refdb/`, `markers/`, `genome_data/`, `.hmm`, `.xlsx` de saída e o
-  diretório de saída inteiro **não devem ser commitados**. **`.gitignore`: A DEFINIR** (crie um).
-- **Credenciais no template** — `TEMPLATE_CONFIG` contém email + API key de exemplo
-  hardcoded; não os trate como segredo real nem adicione novos segredos ao template.
+  must keep `N ≤ 10`. Without an API key the limit drops to 3 req/s.
+- **Determinism** — results depend on the current state of NCBI (remote databases change);
+  there is no seed. Assume non-identical outputs between runs far apart in time.
+- **Parallelism/memory** — each task writes to a unique path (`genome_code`+`genus`); `ws` and
+  `positive_dict` are read-only in the parallel phase. `socket.setdefaulttimeout(120)` bounds each request.
+- **FASTA padding** — `pad_marker_fastas()` duplicates sequences up to >5 for MAFFT/tabajara;
+  this is intentional, do not "fix" it as an accidental duplicate.
+- **Large files** — `refdb/`, `markers/`, `genome_data/`, `.hmm`, output `.xlsx`, and the
+  entire output directory **must not be committed**. **`.gitignore`: TBD** (create one).
+- **Credentials in the template** — `TEMPLATE_CONFIG` contains a hardcoded example email +
+  API key; do not treat them as real secrets nor add new secrets to the template.
 
-## 9. O que NÃO fazer
+## 9. What NOT to do
 
-- Não introduza clusterização por similaridade nem `hmmsearch/hmmscan/hmmpress` presumindo
-  que "já existem" — não existem (ver §2/§8). Se forem adicionar, alinhe comigo antes.
-- Não chame `hmmbuild` diretamente contornando `tabajara.pl` (quebraria a seleção de blocos).
-- Não misture versões de HMMER entre `hmmbuild` (via tabajara) e qualquer etapa futura.
-- Não quebre a ordem de colunas `new_order` da tabela final nem o schema de `report_hmms`.
-- Não commite dados/HMMs/planilhas pesados ou diretórios de saída.
-- Não passe parâmetros do tabajara pela linha de comando (use `tabajara.conf`).
-- Não remova o `+`/versão do nome do arquivo sem atualizar a var `version`.
-- Não faça push na branch de release `1.7.14`; trabalhe em `claude/init-jfw903` (PR #11).
+- Do not introduce similarity clustering or `hmmsearch/hmmscan/hmmpress` assuming
+  they "already exist" — they do not (see §2/§8). If you are going to add them, align with me first.
+- Do not call `hmmbuild` directly bypassing `tabajara.pl` (it would break block selection).
+- Do not mix HMMER versions between `hmmbuild` (via tabajara) and any future step.
+- Do not break the `new_order` column order of the final table nor the `report_hmms` schema.
+- Do not commit heavy data/HMMs/spreadsheets or output directories.
+- Do not pass tabajara parameters on the command line (use `tabajara.conf`).
+- Do not remove the `+`/version from the filename without updating the `version` var.
+- Do not push to the release branch `1.7.14`; work on `claude/init-jfw903` (PR #11).
 
 ---
 
-### Itens marcados "A DEFINIR" (para você completar)
-1. **Versão exata do Python** e pins de libs (`pandas`/`biopython`/`openpyxl`).
-2. **Gerenciador de ambiente** (conda/mamba/venv) + `environment.yml`/lockfile.
-3. **Versões fixadas** de BLAST+, MAFFT, HMMER e `tabajara.pl` (+ onde obter `tabajara.pl`).
-4. **Setup do ambiente** (comando único de instalação).
-5. **Testes** (framework, comando, dado de exemplo mínimo).
-6. **Lint/format** (ruff/black/pre-commit) — se desejado.
-7. **`.gitignore`** cobrindo `refdb/ markers/ genome_data/ *.hmm *.xlsx` e diretórios de saída.
-8. **Decisão sobre `hmmpress/hmmsearch/hmmscan`**: entram no escopo ou permanecem fora?
+### Items flagged "TBD" (for you to complete)
+1. **Exact Python version** and lib pins (`pandas`/`biopython`/`openpyxl`).
+2. **Environment manager** (conda/mamba/venv) + `environment.yml`/lockfile.
+3. **Pinned versions** of BLAST+, MAFFT, HMMER, and `tabajara.pl` (+ where to obtain `tabajara.pl`).
+4. **Environment setup** (single install command).
+5. **Tests** (framework, command, minimal example data).
+6. **Lint/format** (ruff/black/pre-commit) — if desired.
+7. **`.gitignore`** covering `refdb/ markers/ genome_data/ *.hmm *.xlsx` and output directories.
+8. **Decision on `hmmpress/hmmsearch/hmmscan`**: in scope or out?
