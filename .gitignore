@@ -48,6 +48,10 @@ env/
 .coverage
 htmlcov/
 
+# ── Refactor safety net (local-only; git history holds the pristine original) ──
+original_backup/
+testes/
+
 # ── OS / editor cruft ────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
