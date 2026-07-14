@@ -72,15 +72,17 @@ Flow (key functions):
 ## 4. Stack and dependencies
 
 - **Python** — `#!/usr/bin/env python3`; uses f-strings, `pathlib`, `concurrent.futures`,
-  `fcntl` (Linux). Requires **3.6+**; **exact version: TBD** (no pin in the repo).
-- **Python libs** (no `requirements.txt`) — `pandas`, `biopython` (`Bio.Entrez`,
-  `Bio.SeqIO`), `openpyxl`. Stdlib: `argparse`, `configparser`, `subprocess`, `threading`.
+  `fcntl` (Linux). Source syntax works on **3.6+**, but the pinned `requirements.txt`
+  (`numpy 2.3.5`) needs **Python 3.11+**; exact interpreter version still to confirm.
+- **Python libs** (see `requirements.txt`) — `pandas==2.3.3`, `biopython==1.86`
+  (`Bio.Entrez`, `Bio.SeqIO`), `openpyxl==3.1.5`. Stdlib: `argparse`, `configparser`,
+  `subprocess`, `threading`.
 - **External binaries (on `PATH`)** — NCBI BLAST+ (`makeblastdb`, `blastp`), MAFFT
   (`mafft-linsi`), `tabajara.pl` (Perl) which calls HMMER (`hmmbuild`).
 - **Orchestrator** — none (Snakemake/Nextflow absent; it is a script).
 - **Environment** — **venv** (stdlib `python3 -m venv`) for the Python libs only; the
   external binaries above are **not** managed by venv and must be on `PATH` separately
-  (system package manager or bioconda). Pinned `requirements.txt`: TBD.
+  (system package manager or bioconda). Python pins live in `requirements.txt`.
 - **Tool versions** — **TBD** (nothing pinned; see §8).
 
 ## 5. Essential commands
@@ -163,9 +165,10 @@ python3 "VMR+_1.7.14.py" -v        # version
 ---
 
 ### Items flagged "TBD" (for you to complete)
-1. **Exact Python version** and lib pins (`pandas`/`biopython`/`openpyxl`).
-2. **Environment manager** — decided: **venv**. Still TBD: a pinned `requirements.txt`
-   (and how the external binaries get installed on `PATH`).
+1. **Exact Python version** — interpreter version still to confirm (pins imply 3.11+).
+   ~~Lib pins~~ done in `requirements.txt` (`pandas 2.3.3`/`biopython 1.86`/`openpyxl 3.1.5`).
+2. **Environment manager** — decided: **venv**; Python pins done (`requirements.txt`).
+   Still TBD: how the external binaries get installed on `PATH`.
 3. **Pinned versions** of BLAST+, MAFFT, HMMER, and `tabajara.pl` (+ where to obtain `tabajara.pl`).
 4. **Environment setup** (single install command).
 5. **Tests** (framework, command, minimal example data).
