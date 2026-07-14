@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
 
-import os
-import sys
-import pandas as pd
 import argparse
-from Bio import Entrez
-from Bio import SeqIO
-from argparse import RawTextHelpFormatter
-import time
-from io import StringIO
-import subprocess
-import http.client 
-import urllib.error
-import socket
-import logging
-from pathlib import Path
-from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import Font
-from openpyxl.worksheet.hyperlink import Hyperlink
-import re
-from collections import defaultdict
-import csv
 import configparser
-import shutil
-import threading
+import csv
 import fcntl
+import http.client
+import logging
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+from argparse import RawTextHelpFormatter
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import StringIO
+from pathlib import Path
+
+import pandas as pd
+from Bio import Entrez, SeqIO
+from openpyxl import load_workbook
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.hyperlink import Hyperlink
 
 # Global socket timeout (seconds) applied to ALL NCBI Entrez/urllib requests.
 # If a request stalls beyond this, Python raises socket.timeout, which the
@@ -1065,7 +1065,7 @@ def run_mafft(fasta_family,output):
                 check=True
             )
 
-        logging.info(f"Mafft alignment completed successfully")
+        logging.info("Mafft alignment completed successfully")
         return result
     
     except Exception as e:
@@ -2943,7 +2943,7 @@ VMR Program version {version} - 30 jan 2026
 
         data_report_hmms.sort(key=lambda x: (x[0], x[1], x[2]))
 
-        report_hmms_csv = f'report_hmms.csv'
+        report_hmms_csv = 'report_hmms.csv'
         report_hmms_file = os.path.join(final_dir, report_hmms_csv)
 
         with open(report_hmms_file, "w", newline="") as f_report:
@@ -2956,7 +2956,7 @@ VMR Program version {version} - 30 jan 2026
         xlsx_report_file = report_csv_file.with_suffix('.xlsx')
         df_xl_report.to_excel(xlsx_report_file, index=False)
 
-        logging.info(f"Generated CSV: report_hmms.csv")
+        logging.info("Generated CSV: report_hmms.csv")
         logging.info("Saving all results...\n")
         
         new_tableX = pd.DataFrame(new_tableX)

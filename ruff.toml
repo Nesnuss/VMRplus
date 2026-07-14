@@ -1,0 +1,24 @@
+# Ruff configuration — linter + formatter for the VMR+ project.
+# Run:  ruff check .      (lint)
+#       ruff format .     (auto-format)
+#
+# The pipeline (VMR+_1.7.14.py) is a large legacy single-file script, so the
+# lint rule set is deliberately conservative: catch real errors (undefined
+# names, bad imports) without drowning the author in style noise or forcing a
+# huge reformat diff. Tighten `select` over time as the code is cleaned up.
+
+line-length = 100
+target-version = "py312"
+
+[lint]
+# E = pycodestyle errors, F = pyflakes (real bugs: undefined/unused names),
+# I = import sorting.
+select = ["E", "F", "I"]
+ignore = [
+    "E501",  # line too long — the legacy script has many long lines/comments
+    "E741",  # ambiguous variable name (e.g. `l`) — present in the legacy code
+]
+
+[format]
+# Keep the author's existing quote style instead of rewriting every string.
+quote-style = "preserve"

@@ -114,8 +114,14 @@ python3 "VMR+_1.7.14.py" -v        # version
   git clone https://github.com/gruberlab/tabajara.git
   # then make tabajara.pl executable and available on PATH (e.g. symlink into ~/.local/bin)
   ```
-- **Tests** — **TBD** (no suite).
-- **Lint/format** — **TBD** (no `.pre-commit-config`, ruff, black, etc.).
+- **Dev tools** — `pip install -r requirements-dev.txt` (adds `pytest`, `ruff`).
+- **Tests** — `pytest` (or `pytest -q`); a single test:
+  `pytest tests/test_helpers.py::TestSafePathName::test_replaces_slash`. Only the *pure*
+  helpers are covered (no network/disk); `tests/test_helpers.py` loads the script by path
+  with a clean `sys.argv` so top-level `parse_args()` does not choke on pytest's argv.
+- **Lint/format** — `ruff check .` (lint), `ruff format .` (format); config in `ruff.toml`.
+  Do **not** `ruff format` the legacy `VMR+_1.7.14.py` wholesale — it would produce a huge
+  diff; the lint set is kept conservative on purpose.
 - **Run a single step** — **TBD** (pipeline exposes no subcommands; it is a single flow).
 
 ## 6. Data flow / formats
@@ -184,7 +190,10 @@ python3 "VMR+_1.7.14.py" -v        # version
 3. ~~**Tool versions** and `tabajara.pl` origin.~~ **Done** — BLAST+ 2.17.0+, MAFFT
    v7.526, tabajara.pl v1.0 (github.com/gruberlab/tabajara); HMMER via tabajara.
 4. ~~**Environment setup** (single install command).~~ **Done** (§5).
-5. **Tests** (framework, command, minimal example data).
-6. **Lint/format** (ruff/black/pre-commit) — if desired.
+5. ~~**Tests** (framework, command).~~ **Done** — `pytest` + `tests/test_helpers.py`
+   (pure helpers only). Still TBD: minimal example VMR/terms `.xlsx` data for an
+   integration test (network + binaries required).
+6. ~~**Lint/format**.~~ **Done** — `ruff` (`ruff.toml`); `requirements-dev.txt`.
+   Optional TBD: a `.pre-commit-config.yaml` to run ruff automatically.
 7. ~~**`.gitignore`** covering `refdb/ markers/ genome_data/ *.hmm *.xlsx` and output directories.~~ **Done.**
 8. **Decision on `hmmpress/hmmsearch/hmmscan`**: in scope or out?

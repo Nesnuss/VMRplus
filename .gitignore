@@ -42,6 +42,12 @@ venv/
 env/
 .ipynb_checkpoints/
 
+# ── Test / lint caches ───────────────────────────────────────────────────
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
 # ── OS / editor cruft ────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
