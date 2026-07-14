@@ -9,45 +9,27 @@ The functions covered here are *pure*: given the same input they always
 return the same output, with no side effects. That makes them cheap, fast
 and deterministic to test -- the ideal first safety net for a legacy script.
 
-Loading the script as a module
-------------------------------
-The pipeline lives in ``VMR+_1.7.14.py``. Two obstacles:
-
-1. The filename contains ``+`` and ``.``, so it is NOT a valid Python
-   identifier and cannot be imported with a normal ``import`` statement.
-   We load it by path via ``importlib``.
-2. The script calls ``parser.parse_args()`` at module top-level (line ~2406).
-   On import that would parse pytest's OWN argv and crash. We temporarily
-   swap ``sys.argv`` for a clean list so ``parse_args()`` falls back to its
-   defaults. The ``if __name__ == '__main__'`` block does not run because we
-   give the module a custom name (``vmr_pipeline``), not ``"__main__"``.
+Where the helpers live
+----------------------
+After the modularisation the helpers moved into the importable ``vmrplus``
+package (the ``VMR+_1.7.14.py`` entry point is not importable by name because
+of the ``+``). They are gathered below under a single ``vmr`` namespace so the
+assertions -- unchanged from before the refactor -- keep reading ``vmr.<fn>``.
 """
 
-import importlib.util
-import sys
-from pathlib import Path
+import types
 
 import pytest
 
-# Path to the pipeline script (one level up from tests/).
-SCRIPT = Path(__file__).resolve().parent.parent / "VMR+_1.7.14.py"
+from vmrplus import config, markers, paths
 
-
-def _load_pipeline_module():
-    """Load VMR+_1.7.14.py as a module named 'vmr_pipeline', side-effect free."""
-    saved_argv = sys.argv
-    sys.argv = ["VMR+_1.7.14.py"]  # clean argv -> parse_args() uses defaults
-    try:
-        spec = importlib.util.spec_from_file_location("vmr_pipeline", SCRIPT)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-    finally:
-        sys.argv = saved_argv  # always restore, even if loading fails
-    return module
-
-
-# Loaded once at collection time; reused by every test below.
-vmr = _load_pipeline_module()
+vmr = types.SimpleNamespace(
+    _safe_path_name=paths._safe_path_name,
+    _shorten_accession_filename=paths._shorten_accession_filename,
+    _num_duplicates=markers._num_duplicates,
+    build_tabajara_args=config.build_tabajara_args,
+    detect_cli_config_conflict=config.detect_cli_config_conflict,
+)
 
 
 # ── _safe_path_name ────────────────────────────────────────────────────────

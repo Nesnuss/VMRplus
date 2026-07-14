@@ -17,6 +17,9 @@ select = ["E", "F", "I"]
 ignore = [
     "E501",  # line too long — the legacy script has many long lines/comments
     "E741",  # ambiguous variable name (e.g. `l`) — present in the legacy code
+    "F841",  # unused local vars — pre-existing dead assignments in main() that the
+             # pure-move refactor exposed (module-level -> function-local). Left in
+             # place on purpose; see the refactor's "suggested cleanups" list.
 ]
 
 [format]
