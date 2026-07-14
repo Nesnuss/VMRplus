@@ -79,13 +79,15 @@ Flow (key functions):
   `subprocess`, `threading`.
 - **External binaries (on `PATH`)** — NCBI BLAST+ **2.17.0+** (`makeblastdb`, `blastp`),
   MAFFT **v7.526** (`mafft-linsi`), `tabajara.pl` **v1.0** (Perl) which calls HMMER
-  (`hmmbuild`). HMMER version is a concern of `tabajara.pl` (not pinned here).
+  (`hmmbuild`). HMMER version is a concern of `tabajara.pl` (not pinned here). BLAST+,
+  MAFFT and HMMER install via `apt` (`ncbi-blast+`, `mafft`, `hmmer`); `tabajara.pl`
+  comes from https://github.com/gruberlab/tabajara (download the script, no install).
 - **Orchestrator** — none (Snakemake/Nextflow absent; it is a script).
 - **Environment** — **venv** (stdlib `python3 -m venv`) for the Python libs only; the
   external binaries above are **not** managed by venv and must be on `PATH` separately
   (system package manager or bioconda). Python pins live in `requirements.txt`.
-- **Tool versions** — Python 3.12.3, BLAST+ 2.17.0+, MAFFT v7.526, tabajara.pl v1.0;
-  HMMER left to tabajara. `tabajara.pl` source/origin still to document (see §8).
+- **Tool versions** — Python 3.12.3, BLAST+ 2.17.0+, MAFFT v7.526, tabajara.pl v1.0
+  (from github.com/gruberlab/tabajara); HMMER left to tabajara.
 
 ## 5. Essential commands
 
@@ -102,9 +104,16 @@ python3 "VMR+_1.7.14.py" -h        # help
 python3 "VMR+_1.7.14.py" -v        # version
 ```
 - `-i` and `-t` are required; sheets are 1-based. `-c` is mutually exclusive with `-i -o -s -t -ts`.
-- **Environment setup** — `python3 -m venv .venv && source .venv/bin/activate &&
-  pip install -r requirements.txt` (installs Python libs only). Install BLAST+, MAFFT,
-  HMMER and `tabajara.pl` separately and ensure they are on `PATH`.
+- **Environment setup** (Debian/Ubuntu):
+  ```bash
+  # 1) Python libs (venv)
+  python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+  # 2) External binaries via apt (BLAST+, MAFFT, HMMER)
+  sudo apt install ncbi-blast+ mafft hmmer
+  # 3) tabajara.pl — no install; download the script and put it on PATH (needs hmmbuild)
+  git clone https://github.com/gruberlab/tabajara.git
+  # then make tabajara.pl executable and available on PATH (e.g. symlink into ~/.local/bin)
+  ```
 - **Tests** — **TBD** (no suite).
 - **Lint/format** — **TBD** (no `.pre-commit-config`, ruff, black, etc.).
 - **Run a single step** — **TBD** (pipeline exposes no subcommands; it is a single flow).
@@ -170,11 +179,11 @@ python3 "VMR+_1.7.14.py" -v        # version
 ### Items flagged "TBD" (for you to complete)
 1. ~~**Exact Python version** and lib pins.~~ **Done** — Python 3.12.3;
    `requirements.txt` (`pandas 2.3.3`/`biopython 1.86`/`openpyxl 3.1.5`).
-2. **Environment manager** — decided: **venv**; Python pins done (`requirements.txt`).
-   Still TBD: how the external binaries get installed on `PATH`.
-3. **Tool versions** recorded (BLAST+ 2.17.0+, MAFFT v7.526, tabajara.pl v1.0; HMMER via
-   tabajara). Still TBD: **where to obtain `tabajara.pl`** (source repo/URL).
-4. **Environment setup** (single install command).
+2. ~~**Environment manager** and external-binary install.~~ **Done** — venv +
+   `requirements.txt`; BLAST+/MAFFT/HMMER via `apt` (see §5).
+3. ~~**Tool versions** and `tabajara.pl` origin.~~ **Done** — BLAST+ 2.17.0+, MAFFT
+   v7.526, tabajara.pl v1.0 (github.com/gruberlab/tabajara); HMMER via tabajara.
+4. ~~**Environment setup** (single install command).~~ **Done** (§5).
 5. **Tests** (framework, command, minimal example data).
 6. **Lint/format** (ruff/black/pre-commit) — if desired.
 7. ~~**`.gitignore`** covering `refdb/ markers/ genome_data/ *.hmm *.xlsx` and output directories.~~ **Done.**
