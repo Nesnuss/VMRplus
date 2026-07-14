@@ -7,7 +7,6 @@ import configparser
 import os
 import sys
 
-
 version = "1.7.14"
 
 help_text = """
