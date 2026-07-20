@@ -2,8 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> Repo-fidelity note: this project is a **single script** (`VMR+_1.7.14.py`).
-> Protein grouping is **taxonomic** (VMR `Family`→`Genus`); there is **no**
+> Repo-fidelity note: this project was originally a **single script**
+> (`VMR+_1.7.14.py`); it has since been refactored into a thin entry point
+> (`VMRplus.py`) that delegates to the importable **`vmrplus/` package**
+> (`config.py`, `paths.py`, `ncbi.py`, `external.py`, `markers.py`, `hmms.py`,
+> `hyperlinks.py`, `reporting.py`, `pipeline.py`). This was a **pure
+> move/reorganise** with no behavioural change — the flow described below
+> still applies unchanged. Protein grouping is **taxonomic** (VMR
+> `Family`→`Genus`); there is **no**
 > similarity clustering (MMseqs2/DIAMOND/CD-HIT). HMM construction is
 > **delegated to `tabajara.pl`** (which internally calls `hmmbuild`); the pipeline
 > does **not** run `hmmpress`, `hmmsearch`, or `hmmscan`. Things that do not yet
@@ -47,27 +53,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Repository (everything currently versioned):
 ```
-VMR+_1.7.14.py   # monolithic pipeline (version in the filename and in the `version` var)
+VMRplus.py       # thin CLI entry point — builds the argparse parser, calls vmrplus.pipeline.main()
+vmrplus/         # package holding the actual implementation
+  __init__.py
+  config.py      # `version`, config load/generate, tabajara.conf writing/defaults
+  paths.py       # safe-path helpers (_safe_path_name, _shorten_accession_filename, ...)
+  ncbi.py        # Entrez search/fetch, rate limiting, parallel task runner
+  external.py    # subprocess wrappers: makeblastdb/blastp, mafft, tabajara.pl
+  markers.py     # marker FASTA extraction/padding helpers
+  hmms.py        # HMM collection/renaming into tabajara_family/tabajara_genera trees
+  hyperlinks.py  # openpyxl hyperlink extraction/embedding for the VMR+ table
+  reporting.py   # report_hmms.csv/.xlsx generation
+  pipeline.py    # main() — orchestrates the full flow (former __main__ block)
+tests/           # pytest suite (pure helpers only, see §5)
+tools/           # characterization/comparison scripts used during the refactor
 README.md        # 2 lines
 CLAUDE.md        # this file
 ```
-The orchestrator is the `if __name__ == '__main__':` block (~line 2412). Outputs are generated
-in an output directory auto-suffixed by `unique_dir()`, containing `VMR.log`, `refdb/`,
-`markers/`, `genome_data/` (if `-gb yes`), the `tabajara_family/` and `tabajara_genera/`
+The orchestrator is `vmrplus.pipeline.main(args)`, invoked from `VMRplus.py`'s
+`if __name__ == '__main__':` block. Outputs are generated in an output directory
+auto-suffixed by `unique_dir()`, containing `VMR.log`, `refdb/`, `markers/`,
+`genome_data/` (if `-gb yes`), the `tabajara_family/` and `tabajara_genera/`
 subtrees, `report_hmms.csv/.xlsx`, and `VMR+_<input>.xlsx`.
 
-Flow (key functions):
-1. **Args/config** — `load_config()`; CLI×config conflict in `detect_cli_config_conflict()`.
+Flow (key functions, now spread across the `vmrplus` modules above):
+1. **Args/config** — `load_config()`; CLI×config conflict in `detect_cli_config_conflict()`
+   (`vmrplus/config.py`).
 2. **Ingestion** — `.xlsx` → `;`-delimited CSV → DataFrames `tableX` (genomes) and `tableY`
-   (terms); worksheet `ws` kept read-only for hyperlink extraction.
-3. **Reference databases** — `refdb` → `make_blast_db` per terms row.
+   (terms); worksheet `ws` kept read-only for hyperlink extraction (`vmrplus/pipeline.py`).
+3. **Reference databases** — `refdb` → `make_blast_db` per terms row (`vmrplus/external.py`).
 4. **Main loop (genome × protein)** — paired by `tableX['Family']==tableY['Name']`:
    `search_entrez` → `cds_prot` → `blast_plus` (`blastp`) → `marker_fasta`. Sequential
-   (`for i/for j`) or parallel (`run_parallel_pipeline` + `_process_single_task`).
-5. **Per-family/genus post-processing** — `pad_marker_fastas()` (duplicates up to >5 seqs),
-   `run_mafft()`, `run_tabajara_con()`/`run_tabajara_dis()`.
-6. **Collection/reports** — `collect_and_rename_hmms()`, `report_hmms.*`, final table
-   reordered to `new_order` with embedded hyperlinks.
+   (`for i/for j`) or parallel (`run_parallel_pipeline` + `_process_single_task`),
+   split across `vmrplus/ncbi.py`, `vmrplus/external.py`, `vmrplus/markers.py`.
+5. **Per-family/genus post-processing** — `pad_marker_fastas()` (duplicates up to >5 seqs,
+   `vmrplus/markers.py`), `run_mafft()`, `run_tabajara_con()`/`run_tabajara_dis()`
+   (`vmrplus/external.py`).
+6. **Collection/reports** — `collect_and_rename_hmms()` (`vmrplus/hmms.py`), `report_hmms.*`
+   (`vmrplus/reporting.py`), final table reordered to `new_order` with embedded hyperlinks
+   (`vmrplus/hyperlinks.py`).
 
 ## 4. Stack and dependencies
 
@@ -92,16 +116,16 @@ Flow (key functions):
 ## 5. Essential commands
 
 ```bash
-# Run (CLI form) — always QUOTE the filename (contains '+')
-python3 "VMR+_1.7.14.py" -i <VMR.xlsx> -t <terms.xlsx> -o <output_dir> \
+# Run (CLI form)
+python3 VMRplus.py -i <VMR.xlsx> -t <terms.xlsx> -o <output_dir> \
     -s <sheet_num> -ts <terms_sheet_num> [-gb yes|no] [-thread N]
 
 # Run (config form)
-python3 "VMR+_1.7.14.py" --generate-config     # generates VMR_config_template.ini
-python3 "VMR+_1.7.14.py" -c VMR_config.ini
+python3 VMRplus.py --generate-config     # generates VMR_config_template.ini
+python3 VMRplus.py -c VMR_config.ini
 
-python3 "VMR+_1.7.14.py" -h        # help
-python3 "VMR+_1.7.14.py" -v        # version
+python3 VMRplus.py -h        # help
+python3 VMRplus.py -v        # version
 ```
 - `-i` and `-t` are required; sheets are 1-based. `-c` is mutually exclusive with `-i -o -s -t -ts`.
 - **Environment setup** (Debian/Ubuntu):
@@ -117,11 +141,12 @@ python3 "VMR+_1.7.14.py" -v        # version
 - **Dev tools** — `pip install -r requirements-dev.txt` (adds `pytest`, `ruff`).
 - **Tests** — `pytest` (or `pytest -q`); a single test:
   `pytest tests/test_helpers.py::TestSafePathName::test_replaces_slash`. Only the *pure*
-  helpers are covered (no network/disk); `tests/test_helpers.py` loads the script by path
-  with a clean `sys.argv` so top-level `parse_args()` does not choke on pytest's argv.
+  helpers are covered (no network/disk); `tests/test_helpers.py` imports them directly from
+  the `vmrplus` package (`from vmrplus import config, markers, paths`) rather than loading
+  `VMRplus.py` by path — `conftest.py` puts the repo root on `sys.path` for this.
 - **Lint/format** — `ruff check .` (lint), `ruff format .` (format); config in `ruff.toml`.
-  Do **not** `ruff format` the legacy `VMR+_1.7.14.py` wholesale — it would produce a huge
-  diff; the lint set is kept conservative on purpose.
+  The lint rule set (`ruff.toml`) is still deliberately conservative from the legacy
+  single-file era; tighten it over time as `vmrplus/` modules get cleaned up.
 - **Run a single step** — **TBD** (pipeline exposes no subcommands; it is a single flow).
 
 ## 6. Data flow / formats
@@ -139,7 +164,8 @@ python3 "VMR+_1.7.14.py" -v        # version
 
 ## 7. Code conventions
 
-- **Script name** contains `+` and the version lives in both the name and the `version` var — keep them in sync.
+- **Entry point** is `VMRplus.py` (no version suffix); the authoritative version lives in
+  `vmrplus/config.py`'s `version` var — bump it there when releasing.
 - **Safe paths** via `_safe_path_name()` / `_shorten_accession_filename()`; counter prefix
   `VMR<7 digits>`.
 - **Tabajara parameters** go through a generated `tabajara.conf` (`write_tabajara_conf`), never
@@ -177,7 +203,7 @@ python3 "VMR+_1.7.14.py" -v        # version
 - Do not break the `new_order` column order of the final table nor the `report_hmms` schema.
 - Do not commit heavy data/HMMs/spreadsheets or output directories.
 - Do not pass tabajara parameters on the command line (use `tabajara.conf`).
-- Do not remove the `+`/version from the filename without updating the `version` var.
+- Do not let `vmrplus/config.py`'s `version` var drift from the version actually being shipped.
 - Do not push to the release branch `1.7.14`; work on `claude/init-jfw903` (PR #11).
 
 ---
