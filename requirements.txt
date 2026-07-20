@@ -1,0 +1,13 @@
+# Python runtime dependencies for VMR+ (install inside a venv):
+#   python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+#
+# Direct dependencies only; numpy, et_xmlfile, python-dateutil, pytz, six and
+# tzdata are pulled in transitively. Pins captured from a working venv.
+#
+# NOTE: the external binaries (BLAST+ makeblastdb/blastp, MAFFT mafft-linsi,
+# HMMER hmmbuild, and tabajara.pl) are NOT Python packages — install them
+# separately and ensure they are on PATH. See CLAUDE.md §4/§5.
+
+biopython==1.86
+openpyxl==3.1.5
+pandas==2.3.3
