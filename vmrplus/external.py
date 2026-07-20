@@ -9,7 +9,6 @@ import subprocess
 import time
 
 from .config import TABAJARA_CON_DEFAULTS, TABAJARA_DIS_DEFAULTS
-from .hmms import rename_hmm_files
 
 
 def auxiliary(command):
@@ -192,9 +191,6 @@ def run_tabajara_con(fasta_family, class_genus, output_dir, tabajara_params=None
                     logging.error(f"STDOUT:\n{e.stdout}")
                     logging.error(f"STDERR:\n{e.stderr}")
                     return None
-
-            # ── Rename HMMs in tabajara_family only ───────────────────────────
-            rename_hmm_files(output_con / "hmms" / "valid_HMMs", fasta_family)
 
 
 def run_tabajara_dis(fasta_family, class_genus, output_dir, tabajara_params=None):

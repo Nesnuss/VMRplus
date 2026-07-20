@@ -15,42 +15,6 @@ import pandas as pd
 from .ncbi import fetch_taxid_by_name
 
 
-def rename_hmm_files(valid_hmms_dir, fasta_family_path):
-    """
-    Renames all .hmm files in *valid_hmms_dir* by prepending the family name
-    extracted from *fasta_family_path* (everything before the first '_').
-
-    Example
-    -------
-    fasta_family_path : 'Peribunyaviridae_aligned.fasta'
-      → prefix : 'Peribunyaviridae'
-
-    Before : _6_663-700.hmm
-    After  : Peribunyaviridae_6_663-700.hmm
-
-    Already-prefixed files are skipped (idempotent).
-    """
-    valid_hmms_dir    = Path(valid_hmms_dir)
-    fasta_family_path = Path(fasta_family_path)
-
-    if not valid_hmms_dir.is_dir():
-        logging.warning(f"rename_hmm_files: directory not found: {valid_hmms_dir}")
-        return
-
-    stem   = fasta_family_path.stem   # e.g. 'Peribunyaviridae_aligned'
-    prefix = stem.split("_")[0]       # e.g. 'Peribunyaviridae'
-
-    renamed = 0
-    for hmm_file in sorted(valid_hmms_dir.glob("*.hmm")):
-        old_name = hmm_file.name
-        if old_name.startswith(prefix):   # already renamed — skip
-            continue
-        new_name = f"{prefix}{old_name}"
-        hmm_file.rename(valid_hmms_dir / new_name)
-        logging.info(f"  Renamed HMM: {old_name} → {new_name}")
-        renamed += 1
-
-    logging.info(f"rename_hmm_files: {renamed} file(s) renamed in {valid_hmms_dir}")
 def _parse_hmm_metadata(hmm_path):
     """
     Parses an HMM file and extracts metadata fields.
