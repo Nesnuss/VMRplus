@@ -12,8 +12,8 @@ and deterministic to test -- the ideal first safety net for a legacy script.
 Where the helpers live
 ----------------------
 After the modularisation the helpers moved into the importable ``vmrplus``
-package (the ``VMR+_1.7.14.py`` entry point is not importable by name because
-of the ``+``). They are gathered below under a single ``vmr`` namespace so the
+package; the ``VMRplus.py`` entry point is now just a thin CLI wrapper around
+it. They are gathered below under a single ``vmr`` namespace so the
 assertions -- unchanged from before the refactor -- keep reading ``vmr.<fn>``.
 """
 

@@ -2,10 +2,9 @@
 """Entry point for the VMR+ pipeline.
 
 The implementation now lives in the ``vmrplus`` package; this thin wrapper only
-builds the CLI parser and hands off to ``vmrplus.pipeline.main``. Invocation is
-unchanged:
+builds the CLI parser and hands off to ``vmrplus.pipeline.main``:
 
-    python3 "VMR+_1.7.14.py" -config <cfg.ini> -thr <N>
+    python3 VMRplus.py -config <cfg.ini> -thr <N>
 """
 
 import argparse

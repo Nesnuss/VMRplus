@@ -6,7 +6,7 @@
 # capturing every output, stdout, stderr and the exit code.
 #
 # Three modes:
-#   baseline  Run the CURRENT VMR+_1.7.14.py TWICE and compare A vs B. This tells
+#   baseline  Run the CURRENT VMRplus.py TWICE and compare A vs B. This tells
 #             you what is stable vs what is noise/NCBI drift BEFORE you trust any
 #             golden files. Do this first, with the ORIGINAL checked out.
 #   golden    Run once and save the result as the GOLDEN reference. Do this with
@@ -22,7 +22,7 @@
 set -euo pipefail
 
 # ── Configure these for your machine ────────────────────────────────────────
-SCRIPT="${SCRIPT:-./VMR+_1.7.14.py}"          # the entry point (do NOT rename)
+SCRIPT="${SCRIPT:-./VMRplus.py}"               # the entry point
 CONFIG="${CONFIG:-VMR_config_template.ini}"    # the -config .ini
 THR="${THR:-10}"                               # -thr value
 WORK="${WORK:-testes/VMR_char}"                # where this harness stores results
