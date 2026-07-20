@@ -836,6 +836,20 @@ VMR Program version {version} - 30 jan 2026
 
                         aligned_file = next(marker_path.glob("*.fasta"), None)
 
+                        # If MAFFT produced no usable MSA (file missing or
+                        # empty), fall back to the raw family FASTA in the
+                        # marker's fasta/ subdirectory so tabajara can still
+                        # run for this protein/family.
+                        if aligned_file is None or count_fasta_sequences(aligned_file) == 0:
+                            fallback = marker_path / "fasta" / f"{family_path.name}.fasta"
+                            if fallback.exists() and count_fasta_sequences(fallback) > 0:
+                                logging.warning(
+                                    f"  MSA not found or empty for marker "
+                                    f"'{marker_path.name}'; falling back to raw "
+                                    f"FASTA '{fallback.name}'"
+                                )
+                                aligned_file = fallback
+
                         if aligned_file is None:
                             logging.info("  .fasta file not found")
                             continue
@@ -861,14 +875,14 @@ VMR Program version {version} - 30 jan 2026
 
                         # Single-sequence markers can't yield an informative
                         # alignment, so tabajara needs the single-sequence
-                        # parameters (-sa 1 -sr yes -mb 6) to still build a
+                        # parameters (-sa 1 -sr yes -mb 60) to still build a
                         # profile HMM for that protein/family.
                         family_fasta = marker_path / "fasta" / f"{family_path.name}.fasta"
                         if count_fasta_sequences(family_fasta) == 1:
                             logging.info(
                                 f"  Single-sequence marker '{marker_path.name}': "
                                 "applying single-sequence tabajara params "
-                                "(-sa 1 -sr yes -mb 6)"
+                                "(-sa 1 -sr yes -mb 60)"
                             )
                             con_params.update(TABAJARA_SINGLE_SEQ_PARAMS)
                             dis_params.update(TABAJARA_SINGLE_SEQ_PARAMS)

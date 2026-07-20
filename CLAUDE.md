@@ -50,7 +50,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   directly here** (MAFFT emits aligned FASTA; `tabajara.pl` bridges to `hmmbuild`).
 - **tabajara.pl** — external Perl tool that, from the MSA, selects blocks and calls
   `hmmbuild`. Modes: `-m c` (conservative) and `-m d` (discriminatory). Single-sequence
-  markers additionally get `-sa 1 -sr yes -mb 6` so an HMM can still be built.
+  markers additionally get `-sa 1 -sr yes -mb 60` so an HMM can still be built.
 
 ## 3. Architecture and directory structure
 
@@ -92,9 +92,11 @@ Flow (key functions, now spread across the `vmrplus` modules above):
 5. **Per-family/genus post-processing** — `run_mafft()`,
    `run_tabajara_con()`/`run_tabajara_dis()` (`vmrplus/external.py`). Markers whose
    `{family}.fasta` holds a **single sequence** (`count_fasta_sequences()` in
-   `vmrplus/markers.py`) get the extra tabajara params `-sa 1 -sr yes -mb 6`
+   `vmrplus/markers.py`) get the extra tabajara params `-sa 1 -sr yes -mb 60`
    (`TABAJARA_SINGLE_SEQ_PARAMS`, applied in both con and dis modes) so an HMM can
-   still be built from the lone sequence.
+   still be built from the lone sequence. If MAFFT produced **no usable MSA** for a
+   marker (`{family}_aligned.fasta` missing or empty), tabajara falls back to the raw
+   `fasta/{family}.fasta` in the marker dir instead of skipping the marker.
 6. **Collection/reports** — `collect_and_rename_hmms()` (`vmrplus/hmms.py`), `report_hmms.*`
    (`vmrplus/reporting.py`), final table reordered to `new_order` with embedded hyperlinks
    (`vmrplus/hyperlinks.py`).

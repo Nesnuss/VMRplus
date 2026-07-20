@@ -66,10 +66,13 @@ TABAJARA_DIS_DEFAULTS = {
 # Extra tabajara.pl parameters applied (in both conservative and
 # discriminatory modes) to a marker whose FASTA holds a single sequence, so
 # tabajara can still build a profile HMM from that lone sequence.
+# Note: -mb is the MAXIMUM block size; it must stay above the pipeline's
+# minimum block size (-b, default 20) or tabajara selects 0 blocks and builds
+# no HMM. -mb 60 leaves room for a block to be selected.
 TABAJARA_SINGLE_SEQ_PARAMS = {
     'sa': '1',
     'sr': 'yes',
-    'mb': '6',
+    'mb': '60',
 }
 
 TEMPLATE_CONFIG = """\
