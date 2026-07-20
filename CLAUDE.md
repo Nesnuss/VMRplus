@@ -90,11 +90,14 @@ Flow (key functions, now spread across the `vmrplus` modules above):
    (`for i/for j`) or parallel (`run_parallel_pipeline` + `_process_single_task`),
    split across `vmrplus/ncbi.py`, `vmrplus/external.py`, `vmrplus/markers.py`.
 5. **Per-family/genus post-processing** — `run_mafft()`,
-   `run_tabajara_con()`/`run_tabajara_dis()` (`vmrplus/external.py`). Markers whose
-   `{family}.fasta` holds a **single sequence** (`count_fasta_sequences()` in
-   `vmrplus/markers.py`) get the extra tabajara params `-sa 1 -sr yes -mb 60`
-   (`TABAJARA_SINGLE_SEQ_PARAMS`, applied in both con and dis modes) so an HMM can
-   still be built from the lone sequence. If MAFFT produced **no usable MSA** for a
+   `run_tabajara_con()`/`run_tabajara_dis()` (`vmrplus/external.py`). If **any
+   genus-level FASTA** in the marker's `fasta/` directory (every `*.fasta` except the
+   family-level `{family}.fasta`) holds a **single sequence** (`count_fasta_sequences()`
+   in `vmrplus/markers.py`), the family run gets the extra tabajara params
+   `-sa 1 -sr yes -mb 60` (`TABAJARA_SINGLE_SEQ_PARAMS`, applied in both con and dis
+   modes) so an HMM can still be built for that lone-sequence genus. The run is
+   otherwise unchanged — same family MSA input (with raw-FASTA fallback), same output
+   dirs. If MAFFT produced **no usable MSA** for a
    marker (`{family}_aligned.fasta` missing or empty), tabajara falls back to the raw
    `fasta/{family}.fasta` in the marker dir instead of skipping the marker.
 6. **Collection/reports** — `collect_and_rename_hmms()` (`vmrplus/hmms.py`), `report_hmms.*`

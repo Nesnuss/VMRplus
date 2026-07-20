@@ -873,14 +873,25 @@ VMR Program version {version} - 30 jan 2026
                         con_params = dict(cfg_tab_con) if cfg_tab_con else {}
                         dis_params = dict(cfg_tab_dis) if cfg_tab_dis else {}
 
-                        # Single-sequence markers can't yield an informative
-                        # alignment, so tabajara needs the single-sequence
+                        # Inspect the genus-level FASTAs in this marker's
+                        # fasta/ directory (every *.fasta except the
+                        # family-level {family}.fasta). A genus represented by a
+                        # single sequence cannot yield an informative block on
+                        # its own, so tabajara needs the single-sequence
                         # parameters (-sa 1 -sr yes -mb 60) to still build a
-                        # profile HMM for that protein/family.
+                        # profile HMM for it. The run itself is unchanged: same
+                        # family MSA input (with raw-FASTA fallback), same
+                        # output dirs.
                         family_fasta = marker_path / "fasta" / f"{family_path.name}.fasta"
-                        if count_fasta_sequences(family_fasta) == 1:
+                        single_seq_genera = [
+                            g.stem
+                            for g in sorted((marker_path / "fasta").glob("*.fasta"))
+                            if g != family_fasta and count_fasta_sequences(g) == 1
+                        ]
+                        if single_seq_genera:
                             logging.info(
-                                f"  Single-sequence marker '{marker_path.name}': "
+                                f"  Single-sequence genus/genera in marker "
+                                f"'{marker_path.name}': {', '.join(single_seq_genera)}; "
                                 "applying single-sequence tabajara params "
                                 "(-sa 1 -sr yes -mb 60)"
                             )
