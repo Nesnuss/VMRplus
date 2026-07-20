@@ -21,13 +21,14 @@ import types
 
 import pytest
 
-from vmrplus import config, paths
+from vmrplus import config, markers, paths
 
 vmr = types.SimpleNamespace(
     _safe_path_name=paths._safe_path_name,
     _shorten_accession_filename=paths._shorten_accession_filename,
     build_tabajara_args=config.build_tabajara_args,
     detect_cli_config_conflict=config.detect_cli_config_conflict,
+    count_fasta_sequences=markers.count_fasta_sequences,
 )
 
 
@@ -62,6 +63,23 @@ class TestShortenAccessionFilename:
     def test_is_deterministic(self):
         raw = "Z" * 250
         assert vmr._shorten_accession_filename(raw) == vmr._shorten_accession_filename(raw)
+
+
+# ── count_fasta_sequences ──────────────────────────────────────────────────
+class TestCountFastaSequences:
+    def test_counts_headers(self, tmp_path):
+        f = tmp_path / "m.fasta"
+        f.write_text(">a\nAAAA\n>b\nCCCC\n>c\nGGGG\n")
+        assert vmr.count_fasta_sequences(f) == 3
+
+    def test_single_sequence(self, tmp_path):
+        # The single-sequence case that triggers the special tabajara params.
+        f = tmp_path / "m.fasta"
+        f.write_text(">only\nMKLV\n")
+        assert vmr.count_fasta_sequences(f) == 1
+
+    def test_missing_file_returns_zero(self, tmp_path):
+        assert vmr.count_fasta_sequences(tmp_path / "nope.fasta") == 0
 
 
 # ── build_tabajara_args ────────────────────────────────────────────────────

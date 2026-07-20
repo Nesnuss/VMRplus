@@ -63,6 +63,15 @@ TABAJARA_DIS_DEFAULTS = {
     'm': 'd',
 }
 
+# Extra tabajara.pl parameters applied (in both conservative and
+# discriminatory modes) to a marker whose FASTA holds a single sequence, so
+# tabajara can still build a profile HMM from that lone sequence.
+TABAJARA_SINGLE_SEQ_PARAMS = {
+    'sa': '1',
+    'sr': 'yes',
+    'mb': '6',
+}
+
 TEMPLATE_CONFIG = """\
 ; VMR Program - Configuration File Template
 ; Version: {version}

@@ -24,6 +24,7 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 
 from . import ncbi
 from .config import (
+    TABAJARA_SINGLE_SEQ_PARAMS,
     detect_cli_config_conflict,
     generate_config_template,
     help_text,
@@ -40,7 +41,7 @@ from .hyperlinks import (
     hyperlink_segment,
     segment_named,
 )
-from .markers import marker_fasta
+from .markers import count_fasta_sequences, marker_fasta
 from .ncbi import (
     cds_prot,
     download_all_genomes,
@@ -855,10 +856,27 @@ VMR Program version {version} - 30 jan 2026
                         list_c = ",".join(clean_list)
 
                         # ── Pass config-driven Tabajara params ────────────
+                        con_params = dict(cfg_tab_con) if cfg_tab_con else {}
+                        dis_params = dict(cfg_tab_dis) if cfg_tab_dis else {}
+
+                        # Single-sequence markers can't yield an informative
+                        # alignment, so tabajara needs the single-sequence
+                        # parameters (-sa 1 -sr yes -mb 6) to still build a
+                        # profile HMM for that protein/family.
+                        family_fasta = marker_path / "fasta" / f"{family_path.name}.fasta"
+                        if count_fasta_sequences(family_fasta) == 1:
+                            logging.info(
+                                f"  Single-sequence marker '{marker_path.name}': "
+                                "applying single-sequence tabajara params "
+                                "(-sa 1 -sr yes -mb 6)"
+                            )
+                            con_params.update(TABAJARA_SINGLE_SEQ_PARAMS)
+                            dis_params.update(TABAJARA_SINGLE_SEQ_PARAMS)
+
                         run_tabajara_con(aligned_file, list_c, marker_path,
-                                         tabajara_params=cfg_tab_con)
+                                         tabajara_params=con_params)
                         run_tabajara_dis(aligned_file, list_c, marker_path,
-                                         tabajara_params=cfg_tab_dis)
+                                         tabajara_params=dis_params)
 
         # ── Collect and rename HMMs ───────────────────────────────────────
         logging.info("Collecting and renaming HMM files...")

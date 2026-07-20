@@ -7,6 +7,18 @@ import logging
 import os
 
 
+def count_fasta_sequences(fasta_file):
+    """Return the number of records ('>' headers) in *fasta_file*.
+
+    Returns 0 if the file does not exist or cannot be read.
+    """
+    try:
+        with open(fasta_file, 'r', encoding='utf-8', errors='ignore') as f:
+            return sum(1 for line in f if line.startswith('>'))
+    except OSError:
+        return 0
+
+
 def marker_fasta(fasta_file, keyword, path, genus, family):
 
     file_family = f"{family}.fasta"
