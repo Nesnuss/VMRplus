@@ -1,0 +1,225 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+> Repo-fidelity note: this project was originally a **single script**; it has
+> since been refactored into a thin entry point (`VMRplus.py`) that delegates
+> to the importable **`vmrplus/` package**
+> (`config.py`, `paths.py`, `ncbi.py`, `external.py`, `markers.py`, `hmms.py`,
+> `hyperlinks.py`, `reporting.py`, `pipeline.py`). This was a **pure
+> move/reorganise** with no behavioural change — the flow described below
+> still applies unchanged. Protein grouping is **taxonomic** (VMR
+> `Family`→`Genus`); there is **no**
+> similarity clustering (MMseqs2/DIAMOND/CD-HIT). HMM construction is
+> **delegated to `tabajara.pl`** (which internally calls `hmmbuild`); the pipeline
+> does **not** run `hmmpress`, `hmmsearch`, or `hmmscan`. Things that do not yet
+> exist are flagged as **TBD** (A DEFINIR).
+
+## 1. Overview
+
+- Enrich the ICTV viral-taxonomy table (VMR/MSL, `.xlsx`) with taxon-specific
+  protein markers downloaded from NCBI.
+- For each (genome × target-protein) pair, search proteins on Entrez, run `blastp`
+  against a family reference database, and extract the corresponding marker.
+- Group markers by family/genus, align with MAFFT, and build profile HMMs
+  (via `tabajara.pl`) in conservative and discriminatory modes.
+- Emit an **incremented VMR+ table** (CSV + `.xlsx` with hyperlinks) and a tree of
+  HMMs per family/genus, plus traceability reports.
+
+## 2. Domain glossary
+
+- **ICTV** — International Committee on Taxonomy of Viruses; defines the official viral taxonomy.
+- **VMR / MSL** — Virus Metadata Resource / Master Species List: the ICTV spreadsheet with one
+  exemplar isolate per species and its GenBank accessions. It is the `-i` input (sheet/column 1-based).
+- **accession / exemplar** — GenBank identifier of a genome; the "exemplar" is the
+  representative isolate of the species listed in the VMR.
+- **taxon-specific marker** — a protein that acts as a signature for a given taxon
+  (here defined by the `Positive_terms`/`Negative_terms` of the terms table, not by clustering).
+- **MSA** — multiple sequence alignment (produced here by `mafft-linsi`).
+- **profile HMM** — probabilistic column-by-column model of an MSA; captures
+  per-position conservation. A `.hmm` file.
+- **HMMER** — suite that manipulates profile HMMs:
+  - `hmmbuild` — builds a `.hmm` from an MSA. **The only one invoked here, and only
+    indirectly via `tabajara.pl`.**
+  - `hmmpress` / `hmmsearch` / `hmmscan` — compress an HMM database / search HMMs against
+    sequences / search sequences against an HMM database. **Not used in this repo** (the
+    pipeline generates HMMs, it does not apply them). See "TBD".
+- **Stockholm format (`.sto`)** — annotated MSA format used by HMMER. **Not generated
+  directly here** (MAFFT emits aligned FASTA; `tabajara.pl` bridges to `hmmbuild`).
+- **tabajara.pl** — external Perl tool that, from the MSA, selects blocks and calls
+  `hmmbuild`. Modes: `-m c` (conservative) and `-m d` (discriminatory).
+
+## 3. Architecture and directory structure
+
+Repository (everything currently versioned):
+```
+VMRplus.py       # thin CLI entry point — builds the argparse parser, calls vmrplus.pipeline.main()
+vmrplus/         # package holding the actual implementation
+  __init__.py
+  config.py      # `version`, config load/generate, tabajara.conf writing/defaults
+  paths.py       # safe-path helpers (_safe_path_name, _shorten_accession_filename, ...)
+  ncbi.py        # Entrez search/fetch, rate limiting, parallel task runner
+  external.py    # subprocess wrappers: makeblastdb/blastp, mafft, tabajara.pl
+  markers.py     # marker FASTA extraction/padding helpers
+  hmms.py        # HMM collection/renaming into tabajara_family/tabajara_genera trees
+  hyperlinks.py  # openpyxl hyperlink extraction/embedding for the VMR+ table
+  reporting.py   # report_hmms.csv/.xlsx generation
+  pipeline.py    # main() — orchestrates the full flow (former __main__ block)
+tests/           # pytest suite (pure helpers only, see §5)
+tools/           # characterization/comparison scripts used during the refactor
+README.md        # 2 lines
+CLAUDE.md        # this file
+```
+The orchestrator is `vmrplus.pipeline.main(args)`, invoked from `VMRplus.py`'s
+`if __name__ == '__main__':` block. Outputs are generated in an output directory
+auto-suffixed by `unique_dir()`, containing `VMR.log`, `refdb/`, `markers/`,
+`genome_data/` (if `-gb yes`), the `tabajara_family/` and `tabajara_genera/`
+subtrees, `report_hmms.csv/.xlsx`, and `VMR+_<input>.xlsx`.
+
+Flow (key functions, now spread across the `vmrplus` modules above):
+1. **Args/config** — `load_config()`; CLI×config conflict in `detect_cli_config_conflict()`
+   (`vmrplus/config.py`).
+2. **Ingestion** — `.xlsx` → `;`-delimited CSV → DataFrames `tableX` (genomes) and `tableY`
+   (terms); worksheet `ws` kept read-only for hyperlink extraction (`vmrplus/pipeline.py`).
+3. **Reference databases** — `refdb` → `make_blast_db` per terms row (`vmrplus/external.py`).
+4. **Main loop (genome × protein)** — paired by `tableX['Family']==tableY['Name']`:
+   `search_entrez` → `cds_prot` → `blast_plus` (`blastp`) → `marker_fasta`. Sequential
+   (`for i/for j`) or parallel (`run_parallel_pipeline` + `_process_single_task`),
+   split across `vmrplus/ncbi.py`, `vmrplus/external.py`, `vmrplus/markers.py`.
+5. **Per-family/genus post-processing** — `pad_marker_fastas()` (duplicates up to >5 seqs,
+   `vmrplus/markers.py`), `run_mafft()`, `run_tabajara_con()`/`run_tabajara_dis()`
+   (`vmrplus/external.py`).
+6. **Collection/reports** — `collect_and_rename_hmms()` (`vmrplus/hmms.py`), `report_hmms.*`
+   (`vmrplus/reporting.py`), final table reordered to `new_order` with embedded hyperlinks
+   (`vmrplus/hyperlinks.py`).
+
+## 4. Stack and dependencies
+
+- **Python** — `#!/usr/bin/env python3`; uses f-strings, `pathlib`, `concurrent.futures`,
+  `fcntl` (Linux). Source syntax works on **3.6+**, but the pinned `requirements.txt`
+  (`numpy 2.3.5`) needs **Python 3.11+**; developed/tested on **3.12.3**.
+- **Python libs** (see `requirements.txt`) — `pandas==2.3.3`, `biopython==1.86`
+  (`Bio.Entrez`, `Bio.SeqIO`), `openpyxl==3.1.5`. Stdlib: `argparse`, `configparser`,
+  `subprocess`, `threading`.
+- **External binaries (on `PATH`)** — NCBI BLAST+ **2.17.0+** (`makeblastdb`, `blastp`),
+  MAFFT **v7.526** (`mafft-linsi`), `tabajara.pl` **v1.0** (Perl) which calls HMMER
+  (`hmmbuild`). HMMER version is a concern of `tabajara.pl` (not pinned here). BLAST+,
+  MAFFT and HMMER install via `apt` (`ncbi-blast+`, `mafft`, `hmmer`); `tabajara.pl`
+  comes from https://github.com/gruberlab/tabajara (download the script, no install).
+- **Orchestrator** — none (Snakemake/Nextflow absent; it is a script).
+- **Environment** — **venv** (stdlib `python3 -m venv`) for the Python libs only; the
+  external binaries above are **not** managed by venv and must be on `PATH` separately
+  (system package manager or bioconda). Python pins live in `requirements.txt`.
+- **Tool versions** — Python 3.12.3, BLAST+ 2.17.0+, MAFFT v7.526, tabajara.pl v1.0
+  (from github.com/gruberlab/tabajara); HMMER left to tabajara.
+
+## 5. Essential commands
+
+```bash
+# Run (CLI form)
+python3 VMRplus.py -i <VMR.xlsx> -t <terms.xlsx> -o <output_dir> \
+    -s <sheet_num> -ts <terms_sheet_num> [-gb yes|no] [-thread N]
+
+# Run (config form)
+python3 VMRplus.py --generate-config     # generates VMR_config_template.ini
+python3 VMRplus.py -c VMR_config.ini
+
+python3 VMRplus.py -h        # help
+python3 VMRplus.py -v        # version
+```
+- `-i` and `-t` are required; sheets are 1-based. `-c` is mutually exclusive with `-i -o -s -t -ts`.
+- **Environment setup** (Debian/Ubuntu):
+  ```bash
+  # 1) Python libs (venv)
+  python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+  # 2) External binaries via apt (BLAST+, MAFFT, HMMER)
+  sudo apt install ncbi-blast+ mafft hmmer
+  # 3) tabajara.pl — no install; download the script and put it on PATH (needs hmmbuild)
+  git clone https://github.com/gruberlab/tabajara.git
+  # then make tabajara.pl executable and available on PATH (e.g. symlink into ~/.local/bin)
+  ```
+- **Dev tools** — `pip install -r requirements-dev.txt` (adds `pytest`, `ruff`).
+- **Tests** — `pytest` (or `pytest -q`); a single test:
+  `pytest tests/test_helpers.py::TestSafePathName::test_replaces_slash`. Only the *pure*
+  helpers are covered (no network/disk); `tests/test_helpers.py` imports them directly from
+  the `vmrplus` package (`from vmrplus import config, markers, paths`) rather than loading
+  `VMRplus.py` by path — `conftest.py` puts the repo root on `sys.path` for this.
+- **Lint/format** — `ruff check .` (lint), `ruff format .` (format); config in `ruff.toml`.
+  The lint rule set (`ruff.toml`) is still deliberately conservative from the legacy
+  single-file era; tighten it over time as `vmrplus/` modules get cleaned up.
+- **Run a single step** — **TBD** (pipeline exposes no subcommands; it is a single flow).
+
+## 6. Data flow / formats
+
+- **VMR/MSL input (`.xlsx`)** — columns used include `Family`, `Subfamily`, `Genus`,
+  `Virus GENBANK accession`, `ICTV_ID`, etc. A missing `Family` falls back to `Subfamily` and then
+  `'unclassified'`.
+- **Terms table (`.xlsx`)** — columns: `Name` (matched against `Family`), `tax_id`,
+  `Positive_terms`, `Negative_terms`, `min_length`, `max_length`, `Parent`.
+- **Intermediates** — `;`-delimited CSV; protein FASTA per refdb/marker; BLAST
+  databases (`makeblastdb`); aligned FASTA (MAFFT); generated `tabajara.conf`.
+- **Outputs** — `.hmm` under `tabajara_family/.../valid_HMMs` and `tabajara_genera/<genus>/...`;
+  `report_hmms.csv/.xlsx` (columns `Family;Genus;Marker;#sequences;#profile HMMs;Redundancy_Status`);
+  final table in the fixed `new_order` order (CSV + `.xlsx` with `openpyxl.Hyperlink`).
+
+## 7. Code conventions
+
+- **Entry point** is `VMRplus.py` (no version suffix); the authoritative version lives in
+  `vmrplus/config.py`'s `version` var — bump it there when releasing.
+- **Safe paths** via `_safe_path_name()` / `_shorten_accession_filename()`; counter prefix
+  `VMR<7 digits>`.
+- **Tabajara parameters** go through a generated `tabajara.conf` (`write_tabajara_conf`), never
+  directly on the command line; defaults in `TABAJARA_CON_DEFAULTS` / `TABAJARA_DIS_DEFAULTS`.
+- **Config `.ini`** — sections `[general]`, `[tabajara_con]`, `[tabajara_dis]`; unknown keys
+  in `[general]` warn and are discarded; in `[tabajara_*]` they are forwarded
+  verbatim to `tabajara.pl` via `build_tabajara_args()`.
+- **Logging** to `VMR.log` inside the output directory.
+
+## 8. Reproducibility and pitfalls
+
+- **Tool versions in use** — BLAST+ 2.17.0+, MAFFT v7.526, tabajara.pl v1.0 (HMMER
+  handled by tabajara). Keep these in sync when upgrading; document any change here.
+- **NCBI/Entrez** — set `Entrez.email` and (for parallel) `Entrez.api_key`. Hard limit
+  10 req/s: `NCBIRateLimiter` (token-bucket) + `_rate_limited_entrez_call()`; `-thread N`
+  must keep `N ≤ 10`. Without an API key the limit drops to 3 req/s.
+- **Determinism** — results depend on the current state of NCBI (remote databases change);
+  there is no seed. Assume non-identical outputs between runs far apart in time.
+- **Parallelism/memory** — each task writes to a unique path (`genome_code`+`genus`); `ws` and
+  `positive_dict` are read-only in the parallel phase. `socket.setdefaulttimeout(120)` bounds each request.
+- **FASTA padding** — `pad_marker_fastas()` duplicates sequences up to >5 for MAFFT/tabajara;
+  this is intentional, do not "fix" it as an accidental duplicate.
+- **Large files** — `refdb/`, `markers/`, `genome_data/`, `.hmm`, output `.xlsx`, and the
+  entire output directory **must not be committed** (covered by `.gitignore`). Note it also
+  ignores `*.xlsx`/`*.csv`/`*.fasta` broadly — force-add example input data with `git add -f` if needed.
+- **Credentials in the template** — `TEMPLATE_CONFIG` contains a hardcoded example email +
+  API key; do not treat them as real secrets nor add new secrets to the template.
+
+## 9. What NOT to do
+
+- Do not introduce similarity clustering or `hmmsearch/hmmscan/hmmpress` assuming
+  they "already exist" — they do not (see §2/§8). If you are going to add them, align with me first.
+- Do not call `hmmbuild` directly bypassing `tabajara.pl` (it would break block selection).
+- Do not mix HMMER versions between `hmmbuild` (via tabajara) and any future step.
+- Do not break the `new_order` column order of the final table nor the `report_hmms` schema.
+- Do not commit heavy data/HMMs/spreadsheets or output directories.
+- Do not pass tabajara parameters on the command line (use `tabajara.conf`).
+- Do not let `vmrplus/config.py`'s `version` var drift from the version actually being shipped.
+- Do not push to the release branch `1.7.14`; work on `claude/init-jfw903` (PR #11).
+
+---
+
+### Items flagged "TBD" (for you to complete)
+1. ~~**Exact Python version** and lib pins.~~ **Done** — Python 3.12.3;
+   `requirements.txt` (`pandas 2.3.3`/`biopython 1.86`/`openpyxl 3.1.5`).
+2. ~~**Environment manager** and external-binary install.~~ **Done** — venv +
+   `requirements.txt`; BLAST+/MAFFT/HMMER via `apt` (see §5).
+3. ~~**Tool versions** and `tabajara.pl` origin.~~ **Done** — BLAST+ 2.17.0+, MAFFT
+   v7.526, tabajara.pl v1.0 (github.com/gruberlab/tabajara); HMMER via tabajara.
+4. ~~**Environment setup** (single install command).~~ **Done** (§5).
+5. ~~**Tests** (framework, command).~~ **Done** — `pytest` + `tests/test_helpers.py`
+   (pure helpers only). Still TBD: minimal example VMR/terms `.xlsx` data for an
+   integration test (network + binaries required).
+6. ~~**Lint/format**.~~ **Done** — `ruff` (`ruff.toml`); `requirements-dev.txt`.
+   Optional TBD: a `.pre-commit-config.yaml` to run ruff automatically.
+7. ~~**`.gitignore`** covering `refdb/ markers/ genome_data/ *.hmm *.xlsx` and output directories.~~ **Done.**
+8. **Decision on `hmmpress/hmmsearch/hmmscan`**: in scope or out?

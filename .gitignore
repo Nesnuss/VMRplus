@@ -1,0 +1,58 @@
+# ── VMR+ pipeline outputs (heavy; never commit) ──────────────────────────
+# Auto-suffixed output directories from unique_dir()
+output_dir*/
+VMR.log
+
+# Pipeline working/output subtrees
+refdb/
+markers/
+genome_data/
+tabajara_family/
+tabajara_genera/
+tabajara.conf
+
+# Generated data / models / spreadsheets
+*.hmm
+*.xlsx
+*.csv
+*.fasta
+*.fa
+*.sto
+
+# BLAST database index files
+*.phr
+*.pin
+*.psq
+*.pdb
+*.pot
+*.ptf
+*.pto
+*.pjs
+*.pos
+
+# Generated config (keep the committed template out of the repo too)
+VMR_config*.ini
+
+# ── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# ── Test / lint caches ───────────────────────────────────────────────────
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── Refactor safety net (local-only; git history holds the pristine original) ──
+original_backup/
+testes/
+
+# ── OS / editor cruft ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp

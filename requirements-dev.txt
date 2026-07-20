@@ -1,0 +1,6 @@
+# Development-only dependencies (tests + lint/format).
+# NOT required to run the pipeline. Install on top of requirements.txt:
+#   pip install -r requirements.txt -r requirements-dev.txt
+
+pytest==9.1.1
+ruff==0.15.21
