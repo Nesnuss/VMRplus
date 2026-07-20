@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> Repo-fidelity note: this project was originally a **single script**
-> (`VMR+_1.7.14.py`); it has since been refactored into a thin entry point
-> (`VMRplus.py`) that delegates to the importable **`vmrplus/` package**
+> Repo-fidelity note: this project was originally a **single script**; it has
+> since been refactored into a thin entry point (`VMRplus.py`) that delegates
+> to the importable **`vmrplus/` package**
 > (`config.py`, `paths.py`, `ncbi.py`, `external.py`, `markers.py`, `hmms.py`,
 > `hyperlinks.py`, `reporting.py`, `pipeline.py`). This was a **pure
 > move/reorganise** with no behavioural change — the flow described below

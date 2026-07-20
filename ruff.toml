@@ -2,11 +2,11 @@
 # Run:  ruff check .      (lint)
 #       ruff format .     (auto-format)
 #
-# The pipeline was originally a large single-file script (VMR+_1.7.14.py, now
-# split into the vmrplus/ package behind the VMRplus.py entry point), so the
-# lint rule set is deliberately conservative: catch real errors (undefined
-# names, bad imports) without drowning the author in style noise or forcing a
-# huge reformat diff. Tighten `select` over time as the code is cleaned up.
+# The pipeline was originally a large single-file script, now split into the
+# vmrplus/ package behind the VMRplus.py entry point, so the lint rule set is
+# deliberately conservative: catch real errors (undefined names, bad imports)
+# without drowning the author in style noise or forcing a huge reformat diff.
+# Tighten `select` over time as the code is cleaned up.
 
 line-length = 100
 target-version = "py312"
