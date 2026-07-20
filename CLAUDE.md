@@ -11,9 +11,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > still applies unchanged. Protein grouping is **taxonomic** (VMR
 > `Family`→`Genus`); there is **no**
 > similarity clustering (MMseqs2/DIAMOND/CD-HIT). HMM construction is
-> **delegated to `tabajara.pl`** (which internally calls `hmmbuild`); the pipeline
-> does **not** run `hmmpress`, `hmmsearch`, or `hmmscan`. Things that do not yet
-> exist are flagged as **TBD** (A DEFINIR).
+> **delegated to `tabajara.pl`** (which internally calls `hmmbuild`); as of this branch,
+> `hmmpress`/`hmmsearch`/`hmmscan` support is being added as a new capability on top of
+> the generated HMMs (see §2/§9/TBD item 8) — it is not yet implemented on `main`. Things
+> that do not yet exist are flagged as **TBD** (A DEFINIR).
 
 ## 1. Overview
 
@@ -42,8 +43,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `hmmbuild` — builds a `.hmm` from an MSA. **The only one invoked here, and only
     indirectly via `tabajara.pl`.**
   - `hmmpress` / `hmmsearch` / `hmmscan` — compress an HMM database / search HMMs against
-    sequences / search sequences against an HMM database. **Not used in this repo** (the
-    pipeline generates HMMs, it does not apply them). See "TBD".
+    sequences / search sequences against an HMM database. **In progress on this branch**
+    (`claude/hmmer-search-support`): the pipeline generated HMMs but did not apply them;
+    this branch adds that capability on top of the `tabajara.pl`-built HMMs. See TBD item 8.
 - **Stockholm format (`.sto`)** — annotated MSA format used by HMMER. **Not generated
   directly here** (MAFFT emits aligned FASTA; `tabajara.pl` bridges to `hmmbuild`).
 - **tabajara.pl** — external Perl tool that, from the MSA, selects blocks and calls
@@ -196,8 +198,11 @@ python3 VMRplus.py -v        # version
 
 ## 9. What NOT to do
 
-- Do not introduce similarity clustering or `hmmsearch/hmmscan/hmmpress` assuming
-  they "already exist" — they do not (see §2/§8). If you are going to add them, align with me first.
+- Do not introduce similarity clustering — that remains out of scope (unrelated to
+  the HMMER search/apply work below).
+- `hmmsearch`/`hmmscan`/`hmmpress` are being added on `claude/hmmer-search-support`
+  (see §2/§8); on `main` they still do not exist — do not assume they're available
+  unless you're on this branch.
 - Do not call `hmmbuild` directly bypassing `tabajara.pl` (it would break block selection).
 - Do not mix HMMER versions between `hmmbuild` (via tabajara) and any future step.
 - Do not break the `new_order` column order of the final table nor the `report_hmms` schema.
@@ -222,4 +227,7 @@ python3 VMRplus.py -v        # version
 6. ~~**Lint/format**.~~ **Done** — `ruff` (`ruff.toml`); `requirements-dev.txt`.
    Optional TBD: a `.pre-commit-config.yaml` to run ruff automatically.
 7. ~~**`.gitignore`** covering `refdb/ markers/ genome_data/ *.hmm *.xlsx` and output directories.~~ **Done.**
-8. **Decision on `hmmpress/hmmsearch/hmmscan`**: in scope or out?
+8. ~~**Decision on `hmmpress/hmmsearch/hmmscan`**: in scope or out?~~ **Decided: in scope.**
+   Implementation tracked on branch `claude/hmmer-search-support`; design/where-it-plugs-in
+   still **TBD** (e.g. `hmmpress` after HMM collection, `hmmsearch`/`hmmscan` as a new
+   optional post-processing stage — not yet designed).
