@@ -113,19 +113,6 @@ def run_mafft(fasta_family,output):
         return None
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Redundancy padding  (make small alignments viable for HMM building)
-# ──────────────────────────────────────────────────────────────────────────────
-
-# Number of DUPLICATES to add as a function of how many real sequences a
-# marker FASTA has. The idea is to DOUBLE the sequences (x2) repeatedly until
-# the total exceeds 5, so MAFFT/tabajara can build informative profile HMMs:
-#     1 seq -> x2 x2 x2 = 8   (add 7)
-#     2 seq -> x2 x2    = 8   (add 6)
-#     3 seq -> x2       = 6   (add 3)
-#     >=4    -> unchanged
-# The balanced cycling in _build_unique_duplicates reproduces the doubling
-# (every original ends up with the same number of copies).
 def write_tabajara_conf(params_dict, class_genus, conf_path):
     """
     Cria um arquivo de configuração para o Tabajara (.conf).

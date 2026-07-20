@@ -62,7 +62,7 @@ vmrplus/         # package holding the actual implementation
   paths.py       # safe-path helpers (_safe_path_name, _shorten_accession_filename, ...)
   ncbi.py        # Entrez search/fetch, rate limiting, parallel task runner
   external.py    # subprocess wrappers: makeblastdb/blastp, mafft, tabajara.pl
-  markers.py     # marker FASTA extraction/padding helpers
+  markers.py     # marker FASTA extraction helpers
   hmms.py        # HMM collection/renaming into tabajara_family/tabajara_genera trees
   hyperlinks.py  # openpyxl hyperlink extraction/embedding for the VMR+ table
   reporting.py   # report_hmms.csv/.xlsx generation
@@ -88,9 +88,8 @@ Flow (key functions, now spread across the `vmrplus` modules above):
    `search_entrez` → `cds_prot` → `blast_plus` (`blastp`) → `marker_fasta`. Sequential
    (`for i/for j`) or parallel (`run_parallel_pipeline` + `_process_single_task`),
    split across `vmrplus/ncbi.py`, `vmrplus/external.py`, `vmrplus/markers.py`.
-5. **Per-family/genus post-processing** — `pad_marker_fastas()` (duplicates up to >5 seqs,
-   `vmrplus/markers.py`), `run_mafft()`, `run_tabajara_con()`/`run_tabajara_dis()`
-   (`vmrplus/external.py`).
+5. **Per-family/genus post-processing** — `run_mafft()`,
+   `run_tabajara_con()`/`run_tabajara_dis()` (`vmrplus/external.py`).
 6. **Collection/reports** — `collect_and_rename_hmms()` (`vmrplus/hmms.py`), `report_hmms.*`
    (`vmrplus/reporting.py`), final table reordered to `new_order` with embedded hyperlinks
    (`vmrplus/hyperlinks.py`).
@@ -161,7 +160,7 @@ python3 VMRplus.py -v        # version
 - **Intermediates** — `;`-delimited CSV; protein FASTA per refdb/marker; BLAST
   databases (`makeblastdb`); aligned FASTA (MAFFT); generated `tabajara.conf`.
 - **Outputs** — `.hmm` under `tabajara_family/.../valid_HMMs` and `tabajara_genera/<genus>/...`;
-  `report_hmms.csv/.xlsx` (columns `Family;Genus;Marker;#sequences;#profile HMMs;Redundancy_Status`);
+  `report_hmms.csv/.xlsx` (columns `Family;Genus;Marker;#sequences;#profile HMMs`);
   final table in the fixed `new_order` order (CSV + `.xlsx` with `openpyxl.Hyperlink`).
 
 ## 7. Code conventions
@@ -188,8 +187,6 @@ python3 VMRplus.py -v        # version
   there is no seed. Assume non-identical outputs between runs far apart in time.
 - **Parallelism/memory** — each task writes to a unique path (`genome_code`+`genus`); `ws` and
   `positive_dict` are read-only in the parallel phase. `socket.setdefaulttimeout(120)` bounds each request.
-- **FASTA padding** — `pad_marker_fastas()` duplicates sequences up to >5 for MAFFT/tabajara;
-  this is intentional, do not "fix" it as an accidental duplicate.
 - **Large files** — `refdb/`, `markers/`, `genome_data/`, `.hmm`, output `.xlsx`, and the
   entire output directory **must not be committed** (covered by `.gitignore`). Note it also
   ignores `*.xlsx`/`*.csv`/`*.fasta` broadly — force-add example input data with `git add -f` if needed.

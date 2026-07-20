@@ -21,12 +21,11 @@ import types
 
 import pytest
 
-from vmrplus import config, markers, paths
+from vmrplus import config, paths
 
 vmr = types.SimpleNamespace(
     _safe_path_name=paths._safe_path_name,
     _shorten_accession_filename=paths._shorten_accession_filename,
-    _num_duplicates=markers._num_duplicates,
     build_tabajara_args=config.build_tabajara_args,
     detect_cli_config_conflict=config.detect_cli_config_conflict,
 )
@@ -63,19 +62,6 @@ class TestShortenAccessionFilename:
     def test_is_deterministic(self):
         raw = "Z" * 250
         assert vmr._shorten_accession_filename(raw) == vmr._shorten_accession_filename(raw)
-
-
-# ── _num_duplicates ────────────────────────────────────────────────────────
-class TestNumDuplicates:
-    # DUPLICATES_BY_COUNT = {1: 7, 2: 6, 3: 3}: pad small groups so the total
-    # exceeds 5 (1+7=8, 2+6=8, 3+3=6) for MAFFT/tabajara.
-    @pytest.mark.parametrize("n,expected", [(1, 7), (2, 6), (3, 3)])
-    def test_known_counts(self, n, expected):
-        assert vmr._num_duplicates(n) == expected
-
-    @pytest.mark.parametrize("n", [0, 4, 5, 6, 100])
-    def test_counts_needing_no_padding_return_zero(self, n):
-        assert vmr._num_duplicates(n) == 0
 
 
 # ── build_tabajara_args ────────────────────────────────────────────────────

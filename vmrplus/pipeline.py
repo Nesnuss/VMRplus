@@ -40,7 +40,7 @@ from .hyperlinks import (
     hyperlink_segment,
     segment_named,
 )
-from .markers import marker_fasta, pad_marker_fastas
+from .markers import marker_fasta
 from .ncbi import (
     cds_prot,
     download_all_genomes,
@@ -793,14 +793,6 @@ VMR Program version {version} - 30 jan 2026
                         line['Segment link'] = seg_url if seg_url else ""
                         new_tableX.append(line)
 
-        # ── Redundancy padding ────────────────────────────────────────────
-        # Duplicate sequences in small marker FASTAs (1..3 seqs) by doubling
-        # until the total exceeds 5 (see DUPLICATES_BY_COUNT) so MAFFT/tabajara
-        # can build informative HMMs.
-        # redundancy_status is consumed later by the report_hmms builder.
-        redundancy_status = {}
-        pad_marker_fastas(dir_marker, redundancy_status)
-
         logging.info('Starting family sequence alignment...')
 
         for family_folder in os.listdir(dir_marker):
@@ -907,8 +899,7 @@ VMR Program version {version} - 30 jan 2026
                         if os.path.isfile(os.path.join(hmm_path, f_report))
                     ])
 
-                fam_redundancy = redundancy_status.get((family, marker, None), False)
-                data_report_hmms.append([family, "Family-wide models", marker, seq_count, hmm_count, fam_redundancy])
+                data_report_hmms.append([family, "Family-wide models", marker, seq_count, hmm_count])
 
             for marker in markers:
                 marker_path_report = os.path.join(family_path_report, marker)
@@ -940,8 +931,7 @@ VMR Program version {version} - 30 jan 2026
                         with open(fasta_file_report, "r", errors="ignore") as f_report:
                             seq_count = sum(1 for line_report in f_report if line_report.startswith(">"))
 
-                    genus_redundancy = redundancy_status.get((family, marker, genus), False)
-                    data_report_hmms.append([family, genus, marker, seq_count, hmm_count, genus_redundancy])
+                    data_report_hmms.append([family, genus, marker, seq_count, hmm_count])
 
         data_report_hmms.sort(key=lambda x: (x[0], x[1], x[2]))
 
@@ -950,7 +940,7 @@ VMR Program version {version} - 30 jan 2026
 
         with open(report_hmms_file, "w", newline="") as f_report:
             writer = csv.writer(f_report, delimiter=";")
-            writer.writerow(["Family", "Genus", "Marker", "#sequences", "#profile HMMs", "Redundancy_Status"])
+            writer.writerow(["Family", "Genus", "Marker", "#sequences", "#profile HMMs"])
             writer.writerows(data_report_hmms)
 
         report_csv_file = Path(report_hmms_file)
