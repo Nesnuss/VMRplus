@@ -7,6 +7,7 @@ import logging
 import os
 import subprocess
 import time
+from pathlib import Path
 
 from .config import TABAJARA_CON_DEFAULTS, TABAJARA_DIS_DEFAULTS
 
@@ -154,14 +155,28 @@ def run_tabajara_con(fasta_family, class_genus, output_dir, tabajara_params=None
         if tabajara_params:
             params.update(tabajara_params)
 
-        params['i'] = str(fasta_family)
-        params['o'] = str(output_con)
+        # Guard against a tabajara.pl path-parsing bug: it derives the HMM
+        # filename prefix with index($input_file, ".") -- the FIRST dot in the
+        # whole -i path -- assuming it marks the ".fasta" extension. When any
+        # parent directory contains a '.' (e.g. a version number like
+        # "1.7.14"), that first dot comes before the basename and the prefix
+        # collapses to empty, producing files like "_2_710-861.hmm" instead of
+        # "Family_2_710-861.hmm". Passing -i as the bare basename and running
+        # tabajara from the input file's own directory keeps the only dot in
+        # the extension, so the prefix is derived correctly regardless of how
+        # the output directory is named. Output/conf paths are made absolute so
+        # they stay valid despite the changed working directory.
+        input_path = Path(fasta_family)
+        run_cwd    = str(input_path.resolve().parent)
+
+        params['i'] = input_path.name
+        params['o'] = str(output_con.resolve())
 
         write_tabajara_conf(params, class_genus, conf_path)
 
         tabajara_cmd_con = [
             "tabajara.pl",
-            "-conf", str(conf_path),
+            "-conf", str(conf_path.resolve()),
         ]
 
         logging.info(f"Running tabajara (con) with config: {conf_path}")
@@ -171,7 +186,8 @@ def run_tabajara_con(fasta_family, class_genus, output_dir, tabajara_params=None
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            check=True
+            check=True,
+            cwd=run_cwd,
         )
 
         logging.info("Tabajara HMMs profile (con) completed successfully")
@@ -205,14 +221,20 @@ def run_tabajara_dis(fasta_family, class_genus, output_dir, tabajara_params=None
         if tabajara_params:
             params.update(tabajara_params)
 
-        params['i'] = str(fasta_family)
-        params['o'] = str(output_dis)
+        # See run_tabajara_con for why -i is passed as a bare basename with an
+        # explicit cwd: it works around a tabajara.pl prefix-parsing bug that
+        # is triggered by a '.' in any parent directory of the -i path.
+        input_path = Path(fasta_family)
+        run_cwd    = str(input_path.resolve().parent)
+
+        params['i'] = input_path.name
+        params['o'] = str(output_dis.resolve())
 
         write_tabajara_conf(params, class_genus, conf_path)
 
         tabajara_cmd_dis = [
             "tabajara.pl",
-            "-conf", str(conf_path),
+            "-conf", str(conf_path.resolve()),
         ]
         logging.info(f"Running tabajara (dis) with config: {conf_path}")
 
@@ -221,7 +243,8 @@ def run_tabajara_dis(fasta_family, class_genus, output_dir, tabajara_params=None
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            check=True
+            check=True,
+            cwd=run_cwd,
         )
 
         logging.info("Tabajara HMMs profile (dis) completed successfully")
