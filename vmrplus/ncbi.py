@@ -317,7 +317,41 @@ def refdb(name_protein, taxid, name_family, path, protein_name, min_len, max_len
 # Whole-genome download  (-gb yes)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def download_genome_fasta(seq_number, genome_code, family, genome_data_dir):
+def _genome_header_tag(family, subfamily, genus):
+    """
+    Build the taxonomic prefix prepended to each genome FASTA header.
+
+    The prefix is '<family>_<genus>', where:
+
+      * the family part is the Family, falling back to the Subfamily; if
+        NEITHER is available, no prefix is added at all (returns '').
+      * the genus part is the Genus, falling back to the literal
+        'unclassified' when the Genus field is empty/missing.
+
+    Whitespace inside any name is collapsed to '_' so the resulting tag
+    cannot truncate a FASTA sequence identifier. Returns '' when no prefix
+    should be added.
+    """
+    if isinstance(family, str) and family.strip():
+        fam_part = family
+    elif isinstance(subfamily, str) and subfamily.strip():
+        fam_part = subfamily
+    else:
+        return ""
+
+    if (isinstance(genus, str) and genus.strip()
+            and genus.strip().lower() != 'nan'):
+        gen_part = genus
+    else:
+        gen_part = "unclassified"
+
+    fam_part = "_".join(fam_part.split())
+    gen_part = "_".join(gen_part.split())
+    return f"{fam_part}_{gen_part}"
+
+
+def download_genome_fasta(seq_number, genome_code, family, genome_data_dir,
+                          taxon_tag=""):
     """
     Downloads the complete nucleotide genome (FASTA) of ONE VMR/MSL
     individual and saves it under genome_data/<family>/.
@@ -329,6 +363,10 @@ def download_genome_fasta(seq_number, genome_code, family, genome_data_dir):
 
     where the accession part joins every accession found in the
     'Virus GENBANK accession' field (version suffixes removed) with '-'.
+
+    Every FASTA header is prefixed with *taxon_tag* (e.g.
+    'Ackermannviridae_Agtrevirus') when non-empty, so the saved sequence
+    ids carry their family/genus. An empty tag leaves the headers untouched.
 
     Existing files are left untouched (allows resuming). Returns the output
     path on success, or None on skip/failure.
@@ -387,6 +425,17 @@ def download_genome_fasta(seq_number, genome_code, family, genome_data_dir):
                 time.sleep(5)
                 continue
 
+            # Prefix each header with the family/genus tag (if any). The
+            # description already begins with the id, so prefixing both keeps
+            # the FASTA title consistent (Biopython writes the description).
+            if taxon_tag:
+                for rec in records:
+                    rec.description = (
+                        f"{taxon_tag}_{rec.description}"
+                        if rec.description else f"{taxon_tag}_{rec.id}"
+                    )
+                    rec.id = f"{taxon_tag}_{rec.id}"
+
             with open(output_file, "w") as out:
                 SeqIO.write(records, out, "fasta")
             logging.info(f"[genome] Saved {os.path.basename(output_file)} ({len(records)} sequence(s)).")
@@ -429,6 +478,8 @@ def download_all_genomes(tableX, final_dir, num_threads):
         family      = row.get("Family", "")
         subfamily   = row.get("Subfamily", "")
 
+        genus       = row.get("Genus", "")
+
         if isinstance(family, str) and family.strip():
             fam = family
         elif isinstance(subfamily, str) and subfamily.strip():
@@ -436,19 +487,23 @@ def download_all_genomes(tableX, final_dir, num_threads):
         else:
             fam = 'unclassified'
 
-        tasks.append((i + 1, genome_code, fam))   # 1-based counter
+        # Header prefix uses its own resolution (no 'unclassified' family
+        # fallback): '' when neither family nor subfamily is available.
+        tag = _genome_header_tag(family, subfamily, genus)
+
+        tasks.append((i + 1, genome_code, fam, tag))   # 1-based counter
 
     if num_threads is not None:
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = [
-                executor.submit(download_genome_fasta, n, gc, fam, genome_data_dir)
-                for (n, gc, fam) in tasks
+                executor.submit(download_genome_fasta, n, gc, fam, genome_data_dir, tag)
+                for (n, gc, fam, tag) in tasks
             ]
             for _ in as_completed(futures):
                 pass
     else:
-        for (n, gc, fam) in tasks:
-            download_genome_fasta(n, gc, fam, genome_data_dir)
+        for (n, gc, fam, tag) in tasks:
+            download_genome_fasta(n, gc, fam, genome_data_dir, tag)
 
     logging.info(f"[genome] Genome download step finished ({len(tasks)} individual(s) processed).")
 
