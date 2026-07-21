@@ -77,7 +77,13 @@ The orchestrator is `vmrplus.pipeline.main(args)`, invoked from `VMRplus.py`'s
 `if __name__ == '__main__':` block. Outputs are generated in an output directory
 auto-suffixed by `unique_dir()`, containing `VMR.log`, `refdb/`, `markers/`,
 `genome_data/` (if `-gb yes`), the `tabajara_family/` and `tabajara_genera/`
-subtrees, `report_hmms.csv/.xlsx`, and `VMR+_<input>.xlsx`.
+subtrees, `report_hmms.csv/.xlsx`, and `VMR+_<input>.xlsx`. When `-gb yes`
+downloads the full genomes, each saved FASTA header is prefixed with the
+taxonomy from its VMR record — `<family>_<genus>_<accession> ...` (e.g.
+`>Ackermannviridae_Agtrevirus_FJ373894.1 ...`). The family part falls back to
+Subfamily, or is omitted entirely (no prefix) when neither exists; the genus
+part falls back to the literal `unclassified`; whitespace in names is collapsed
+to `_` (`_genome_header_tag()` in `vmrplus/ncbi.py`).
 
 Flow (key functions, now spread across the `vmrplus` modules above):
 1. **Args/config** — `load_config()`; CLI×config conflict in `detect_cli_config_conflict()`
