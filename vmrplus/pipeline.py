@@ -53,6 +53,37 @@ from .ncbi import (
 from .paths import _safe_path_name, counter_prot, unique_dir
 from .reporting import generate_family_grouped_report
 
+# Columns of the final table that hold whole numbers but reach pandas as
+# float64 -- a single empty cell in the terms table is enough to float the
+# whole column -- and therefore render as '500.0' instead of '500'.
+INTEGER_COLUMNS = ('min_length', 'max_length')
+
+
+def _as_integer_columns(df):
+    """
+    Render INTEGER_COLUMNS of *df* as integers, in place.
+
+    Uses pandas' nullable ``Int64`` rather than plain ``int`` so that a
+    missing value stays missing (empty cell in the CSV/.xlsx) instead of
+    becoming 0. Must be re-applied after every ``read_csv`` in the write
+    chain, since reading the file back re-infers the dtypes.
+
+    Returns *df* so it can be used inline.
+    """
+    for column in INTEGER_COLUMNS:
+        if column not in df.columns:
+            continue
+        try:
+            df[column] = (
+                pd.to_numeric(df[column], errors='coerce').round().astype('Int64')
+            )
+        except (TypeError, ValueError) as e:
+            logging.warning(
+                f"Could not render column '{column}' as integers ({e}); "
+                f"left as-is."
+            )
+    return df
+
 
 def _process_single_task(task):
     """
@@ -995,6 +1026,7 @@ VMR Program version {version} - 30 jan 2026
         logging.info("Saving all results...\n")
         
         new_tableX = pd.DataFrame(new_tableX)
+        _as_integer_columns(new_tableX)
         new_tableX.to_csv(table_file, sep=';', index=False)
 
         df_csv = pd.read_csv(table_file, delimiter=';')
@@ -1011,6 +1043,7 @@ VMR Program version {version} - 30 jan 2026
                     'Genome', 'Host source', 'Accessions Link', 'Accession link(s) per segment(s)']
 
         df_csv = df_csv[new_order]
+        _as_integer_columns(df_csv)
         df_csv.to_csv(table_file, index=False, sep=';')
 
         final_table_xl = f'VMR+_{input_file}'
@@ -1019,6 +1052,7 @@ VMR Program version {version} - 30 jan 2026
 
         csv_file = Path(table_file)
         df_xl_final = pd.read_csv(csv_file, delimiter=';')
+        _as_integer_columns(df_xl_final)
         xlsx_file = csv_file.with_suffix('.xlsx')
         df_xl_final.to_excel(xlsx_file, index=False)
 

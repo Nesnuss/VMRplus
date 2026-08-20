@@ -19,9 +19,10 @@ assertions -- unchanged from before the refactor -- keep reading ``vmr.<fn>``.
 
 import types
 
+import pandas as pd
 import pytest
 
-from vmrplus import config, markers, paths
+from vmrplus import config, markers, paths, pipeline
 
 vmr = types.SimpleNamespace(
     _safe_path_name=paths._safe_path_name,
@@ -116,3 +117,35 @@ class TestDetectCliConfigConflict:
         # -c plus only non-covered tokens (e.g. -thread) must NOT exit.
         assert vmr.detect_cli_config_conflict(["-c", "cfg.ini", "-thread", "4"],
                                               config_flag_used=True) is None
+
+
+# ── _as_integer_columns ────────────────────────────────────────────────────
+class TestAsIntegerColumns:
+    """min_length/max_length are whole numbers, but a single empty cell in the
+    terms table floats the column, so they rendered as '500.0' in the CSV and
+    the .xlsx."""
+
+    def _frame(self):
+        return pd.DataFrame({
+            'min_length': [500.0, 800.0, None],
+            'max_length': [800.0, 1200.0, 700.0],
+            'Protein_ID': ['BAA93606.1', '', 'WCS65251.1'],
+        })
+
+    def test_whole_floats_become_integers(self):
+        df = pipeline._as_integer_columns(self._frame())
+        assert df['min_length'].tolist()[:2] == [500, 800]
+        assert str(df['min_length'].dtype) == 'Int64'
+
+    def test_missing_values_stay_missing(self):
+        # Nullable Int64, not plain int: an empty cell must not become 0.
+        df = pipeline._as_integer_columns(self._frame())
+        assert pd.isna(df['min_length'].iloc[2])
+
+    def test_other_columns_untouched(self):
+        df = pipeline._as_integer_columns(self._frame())
+        assert df['Protein_ID'].tolist() == ['BAA93606.1', '', 'WCS65251.1']
+
+    def test_absent_column_is_ignored(self):
+        df = pipeline._as_integer_columns(pd.DataFrame({'Family': ['Anelloviridae']}))
+        assert df['Family'].tolist() == ['Anelloviridae']
