@@ -6,7 +6,6 @@ Moved verbatim from the monolithic script (pure move).
 import logging
 import os
 import subprocess
-import time
 from pathlib import Path
 
 from .config import TABAJARA_CON_DEFAULTS, TABAJARA_DIS_DEFAULTS
@@ -24,54 +23,70 @@ def auxiliary(command):
         return None
 
 # Creates command lines that will be run in the shell.
-def blast_plus(database_fasta,genome):
+def blast_plus(database_fasta, genome):
+    """Return the id of the top blastp hit for *genome*, or None.
 
-    result_file = f"Blast_result_{os.getpid()}_{int(time.time())}.txt"
-    
+    The hit id is the *query* id (``-outfmt "6 qseqid"``), i.e. the protein of
+    the queried genome that matched the reference database -- not a reference
+    sequence id.
+
+    Thread safety
+    -------------
+    This function must be safe to call concurrently from the worker threads of
+    ``run_parallel_pipeline``. It therefore does NOT write blastp's output to a
+    temporary file: ``-out`` is omitted so blastp writes the tabular result to
+    stdout, which is captured per call and never leaves this thread's memory.
+
+    The previous implementation named its output file
+    ``f"Blast_result_{os.getpid()}_{int(time.time())}.txt"``. Every worker runs
+    in the same process, so the PID was constant, ``time.time()`` has one-second
+    resolution, and the path was relative to a shared working directory: any two
+    blastp calls starting within the same second used the SAME file. Threads
+    then read each other's hits (a genome was assigned a protein it does not
+    encode) and deleted each other's pending output in the ``finally`` block
+    (a genome with a real hit was recorded as "no hit"). Do not reintroduce a
+    shared output path here -- adding a thread id would still collide between
+    two concurrent VMRplus runs sharing a working directory.
+    """
+    if not genome or genome == []:
+        # print('The genome is a empty list')
+        return None
+
+    # print(f"Running BLAST: {genome} versus {database_fasta}")
+    blastp_cmd = [
+        "blastp",
+        "-query", genome,
+        "-db", database_fasta,
+        "-evalue", "1e-20",
+        "-num_alignments", "1",
+        "-outfmt", ""'6 qseqid '""
+    ]
+
     try:
-        if genome == []:
-             #print('The genome is a empty list')
-            return None
-        else:
-            # print(f"Running BLAST: {genome} versus {database_fasta}")
-            
-            blastp_cmd = [
-                "blastp",
-                "-query", genome,
-                "-db", database_fasta,
-                "-out", result_file,
-                "-evalue", "1e-20",
-                "-num_alignments", "1",
-                "-outfmt", ""'6 qseqid '""
-            ]
-            
-            auxiliary(blastp_cmd)
-        
-        protein = None
-        if os.path.exists(result_file):
-            with open(result_file, "r") as read:
-                lines = read.readlines()
-                if lines:  # Checks if there are lines in the file.
-                    protein = lines[0].strip()
-                #     print(f"Protein found: {protein}")
-                # else:
-                #     print("No results found in the BLAST output file.")
-        # else:
-        #       print(f"The file {result_file} was not found.")
-            
-        return protein
-            
+        result = subprocess.run(
+            blastp_cmd,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error: Failed to execute {' '.join(blastp_cmd)}")
+        logging.error(e.stderr or e)
+        return None
     except Exception as e:
         logging.error(f"BLAST execution failed: {e}")
         return None
-    finally:
-        # This part will always be executed, ensuring the file is cleaned.
-        if os.path.exists(result_file):
-            try:
-                os.remove(result_file)
-                # print(f"Temporary file {result_file} was successfully removed..")
-            except Exception as e:
-                logging.error(f"Error removing temporary file {result_file}: {e}")
+
+    logging.info(f"Command executed successfully: {' '.join(blastp_cmd)}")
+
+    for line in (result.stdout or "").splitlines():
+        line = line.strip()
+        if line:  # first non-empty line = best hit
+            return line
+
+    # print("No results found in the BLAST output.")
+    return None
 
 def make_blast_db(database_fasta):
     if os.path.exists(f'{database_fasta}.pdb'):
