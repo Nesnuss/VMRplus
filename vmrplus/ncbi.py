@@ -7,6 +7,7 @@ import fcntl
 import http.client
 import logging
 import os
+import random
 import socket
 import threading
 import time
@@ -18,6 +19,48 @@ import pandas as pd
 from Bio import Entrez, SeqIO
 
 from .paths import _safe_path_name, _shorten_accession_filename
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Retry policy
+# ──────────────────────────────────────────────────────────────────────────────
+# NCBI throttles hard when the pipeline runs with -thread. 429 and the 5xx
+# family are transient and worth waiting out; a 4xx other than 429 means the
+# request itself is wrong and retrying it only burns the budget.
+#
+# ENTREZ_ATTEMPTS covers the calls that retrieve the proteins encoded by a
+# genome (search_entrez, cds_prot); GENOME_DOWNLOAD_ATTEMPTS covers the -gb
+# whole-genome download. They are defined together so they cannot drift.
+ENTREZ_ATTEMPTS = 5
+GENOME_DOWNLOAD_ATTEMPTS = 5
+_RETRYABLE_HTTP_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+def _retry_delay(attempt, base=5.0, cap=60.0):
+    """
+    Seconds to wait before retrying, for a 0-based *attempt* number.
+
+    Exponential (5s, 10s, 20s, 40s, capped at 60s) with jitter. The fixed 5s
+    sleep this replaces made every throttled thread retry in lockstep, so a
+    burst of 429s tended to reproduce itself on the next attempt; spreading
+    the retries out is what actually clears the throttle.
+    """
+    target = min(cap, base * (2 ** attempt))
+    return target * (0.5 + random.random() / 2)      # 50-100% of target
+
+
+def _is_retryable(exc):
+    """
+    True when *exc* is worth another attempt.
+
+    An HTTP 4xx other than 429 means the request itself is wrong (bad id,
+    bad parameter), so repeating it verbatim cannot help and only burns the
+    attempt budget. Everything else -- 429, 5xx, timeouts, truncated reads --
+    is transient.
+    """
+    status = getattr(exc, 'code', None)
+    if status is not None and 400 <= status < 500 and status not in _RETRYABLE_HTTP_STATUS:
+        return False
+    return True
 
 
 def search_entrez(nuc_acc):
@@ -37,7 +80,8 @@ def search_entrez(nuc_acc):
 
     # print(ids)
     for acc in ids:
-        for attempt in range(3):
+        linked = 0
+        for attempt in range(ENTREZ_ATTEMPTS):
             try:
                 with _ncbi_limiter:
                     handle = Entrez.esearch(db="nuccore", term=acc, usehistory='y')
@@ -62,6 +106,20 @@ def search_entrez(nuc_acc):
                 if result_elink[0].get("LinkSetDb"):
                     for link in result_elink[0]["LinkSetDb"][0].get("Link", []):
                         all_protein_ids.append(link.get("Id", ""))
+                        linked += 1
+
+                if linked == 0:
+                    # NOT an error and not worth retrying: the elink response
+                    # simply carries no LinkSetDb, meaning the GenBank record
+                    # has no CDS features and therefore no protein records at
+                    # all. Previously this was completely silent, so a genome
+                    # that could never yield a marker looked identical in the
+                    # log to one whose download had failed.
+                    logging.info(
+                        f"{acc}: no protein records linked to this genome "
+                        f"(no annotated CDS in GenBank); no marker can be "
+                        f"extracted from it."
+                    )
 
                 break  # sucess → drop retry loop
 
@@ -73,11 +131,24 @@ def search_entrez(nuc_acc):
                     urllib.error.HTTPError,
                     urllib.error.URLError) as e:
 
-                logging.warning(f"Error fetching data: {e}. attempt {attempt+1}/3")
-                time.sleep(5)
+                if not _is_retryable(e):
+                    logging.error(
+                        f"Failed to retrieve data for {acc}: {e}. "
+                        f"Not retryable; giving up."
+                    )
+                    break
+
+                logging.warning(
+                    f"Error fetching data for {acc}: {e}. "
+                    f"attempt {attempt+1}/{ENTREZ_ATTEMPTS}"
+                )
+                if attempt + 1 < ENTREZ_ATTEMPTS:
+                    time.sleep(_retry_delay(attempt))
 
         else:
-            logging.error(f"Failed to retrieve data for {acc} after multiple attempts.")
+            logging.error(
+                f"Failed to retrieve data for {acc} after {ENTREZ_ATTEMPTS} attempts."
+            )
 
     return all_protein_ids
 
@@ -146,13 +217,21 @@ def cds_prot(protein_ids,path,nuc_acc):
     output_file = os.path.join(path, file_name)
 
     logging.info(f"Downloading all proteins coded by {nuc_acc} sequence…")
-    for attempt in range(3):
+    for attempt in range(ENTREZ_ATTEMPTS):
         try:
             fasta_list = []
             if os.path.exists(output_file):
                 #print(f"The file {output_file} already exists. Using the existing file.")
                 return output_file
             elif protein_ids == []:
+                # search_entrez found no protein records for this genome, so
+                # there is nothing to fetch and no _prot.fasta is written.
+                # Logged explicitly because the caller cannot otherwise tell
+                # this apart from a failed download.
+                logging.info(
+                    f"No protein sequences to download for {nuc_acc} "
+                    f"(genome has no linked protein records)."
+                )
                 return fasta_list
             else:
                 
@@ -172,9 +251,22 @@ def cds_prot(protein_ids,path,nuc_acc):
                 return output_file
 
         except (socket.timeout, http.client.IncompleteRead, ValueError, RuntimeError, http.client.RemoteDisconnected, urllib.error.HTTPError, urllib.error.URLError) as e:
-                logging.warning(f"Error fetching data: {e}. attempts {attempt+1}/3...")
-                time.sleep(5)
-    logging.error("Failed to retrieve data after multiple attempts.")
+                if not _is_retryable(e):
+                    logging.error(
+                        f"Failed to download proteins for {nuc_acc}: {e}. "
+                        f"Not retryable; giving up."
+                    )
+                    return []
+
+                logging.warning(
+                    f"Error downloading proteins for {nuc_acc}: {e}. "
+                    f"attempt {attempt+1}/{ENTREZ_ATTEMPTS}"
+                )
+                if attempt + 1 < ENTREZ_ATTEMPTS:
+                    time.sleep(_retry_delay(attempt))
+    logging.error(
+        f"Failed to download proteins for {nuc_acc} after {ENTREZ_ATTEMPTS} attempts."
+    )
     return []
 
 # Downloads the FASTA files of proteins from a family.
@@ -350,6 +442,26 @@ def _genome_header_tag(family, subfamily, genus):
     return f"{fam_part}_{gen_part}"
 
 
+def _normalize_accession(token):
+    """
+    Clean one accession token taken from 'Virus GENBANK accession'.
+
+    Strips stray punctuation the spreadsheet sometimes carries. The VMR cell
+    for VMR0013777 is literally ``'PP173676.'`` -- with a trailing period --
+    and NCBI rejects that outright, answering HTTP 200 with the body
+    ``Error: Failed to understand id: PP173676.`` rather than an error status.
+    The genome was therefore never downloaded even though the accession is
+    valid; ``PP173676`` fetches fine.
+
+    A genuine version suffix is preserved: ``MK861116.1`` is untouched
+    because its dot is followed by digits.
+    """
+    token = token.strip().strip('"\'')
+    while token and token[-1] in '.,;:-_':
+        token = token[:-1]
+    return token.lstrip('.,;:-_')
+
+
 def download_genome_fasta(seq_number, genome_code, family, genome_data_dir,
                           taxon_tag=""):
     """
@@ -389,8 +501,11 @@ def download_genome_fasta(seq_number, genome_code, family, genome_data_dir,
     # segmented ';'/':' syntax, e.g. 'L: MK861116; M: MK861117').
     raw = str(genome_code)
     acc_ids = [
-        tok for tok in raw.replace(";", " ").replace(":", " ").split()
-        if len(tok) >= 6 and any(c.isalpha() for c in tok) and any(c.isdigit() for c in tok)
+        acc for acc in (
+            _normalize_accession(tok)
+            for tok in raw.replace(";", " ").replace(":", " ").split()
+        )
+        if len(acc) >= 6 and any(c.isalpha() for c in acc) and any(c.isdigit() for c in acc)
     ]
     if not acc_ids:
         logging.warning(f"[genome] {prefix}: no valid accession in '{genome_code}'; skipped.")
@@ -404,7 +519,9 @@ def download_genome_fasta(seq_number, genome_code, family, genome_data_dir,
         logging.info(f"[genome] {os.path.basename(output_file)} already exists; skipped.")
         return output_file
 
-    for attempt in range(3):
+    attempts = GENOME_DOWNLOAD_ATTEMPTS
+
+    for attempt in range(attempts):
         try:
             with _ncbi_limiter:
                 efetch_handle = Entrez.efetch(
@@ -421,8 +538,24 @@ def download_genome_fasta(seq_number, genome_code, family, genome_data_dir,
 
             records = list(SeqIO.parse(StringIO(data), "fasta"))
             if not records:
-                logging.warning(f"[genome] {prefix}: no sequence returned for {acc_ids}. attempt {attempt+1}/3")
-                time.sleep(5)
+                # NCBI reports a malformed id in the response BODY with a
+                # 200 status ('Error: Failed to understand id: ...'), so the
+                # body text is the only diagnostic there is -- log it rather
+                # than reporting a bare "no sequence returned".
+                detail = " ".join(data.split())[:200] or "empty response"
+                logging.warning(
+                    f"[genome] {prefix}: no sequence returned for {acc_ids} "
+                    f"-- NCBI said: {detail}. attempt {attempt+1}/{attempts}"
+                )
+                if "failed to understand id" in data.lower() or data.lstrip().startswith("Error:"):
+                    # The request itself is wrong; retrying cannot help.
+                    logging.error(
+                        f"[genome] {prefix}: NCBI rejected accession(s) {acc_ids}; "
+                        f"not retrying. Check the 'Virus GENBANK accession' cell "
+                        f"in the VMR table."
+                    )
+                    return None
+                time.sleep(_retry_delay(attempt))
                 continue
 
             # Prefix each header with the family/genus tag (if any). The
@@ -448,10 +581,24 @@ def download_genome_fasta(seq_number, genome_code, family, genome_data_dir,
                 http.client.RemoteDisconnected,
                 urllib.error.HTTPError,
                 urllib.error.URLError) as e:
-            logging.warning(f"[genome] Error downloading {prefix} ({acc_ids}): {e}. attempt {attempt+1}/3")
-            time.sleep(5)
+            # A 4xx other than 429 means the request is malformed, not
+            # throttled -- retrying it just burns the attempt budget.
+            status = getattr(e, 'code', None)
+            if status is not None and status not in _RETRYABLE_HTTP_STATUS and 400 <= status < 500:
+                logging.error(
+                    f"[genome] Failed to download {prefix} ({acc_ids}): {e}. "
+                    f"Not retryable; giving up."
+                )
+                return None
 
-    logging.error(f"[genome] Failed to download {prefix} ({acc_ids}) after 3 attempts.")
+            logging.warning(
+                f"[genome] Error downloading {prefix} ({acc_ids}): {e}. "
+                f"attempt {attempt+1}/{attempts}"
+            )
+            if attempt + 1 < attempts:
+                time.sleep(_retry_delay(attempt))
+
+    logging.error(f"[genome] Failed to download {prefix} ({acc_ids}) after {attempts} attempts.")
     return None
 
 
@@ -493,19 +640,46 @@ def download_all_genomes(tableX, final_dir, num_threads):
 
         tasks.append((i + 1, genome_code, fam, tag))   # 1-based counter
 
+    failed = []
+
     if num_threads is not None:
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            futures = [
-                executor.submit(download_genome_fasta, n, gc, fam, genome_data_dir, tag)
+            futures = {
+                executor.submit(download_genome_fasta, n, gc, fam, genome_data_dir, tag): (n, gc)
                 for (n, gc, fam, tag) in tasks
-            ]
-            for _ in as_completed(futures):
-                pass
+            }
+            for fut in as_completed(futures):
+                n, gc = futures[fut]
+                try:
+                    if fut.result() is None:
+                        failed.append((n, gc))
+                except Exception as e:
+                    logging.error(f"[genome] VMR{n:07d} ({gc}) raised: {e}", exc_info=True)
+                    failed.append((n, gc))
     else:
         for (n, gc, fam, tag) in tasks:
-            download_genome_fasta(n, gc, fam, genome_data_dir, tag)
+            if download_genome_fasta(n, gc, fam, genome_data_dir, tag) is None:
+                failed.append((n, gc))
 
     logging.info(f"[genome] Genome download step finished ({len(tasks)} individual(s) processed).")
+
+    # Without this summary a handful of failures is invisible in a log of
+    # hundreds of thousands of lines, and the missing genomes are only
+    # noticed much later (or not at all).
+    if failed:
+        logging.warning(
+            f"[genome] {len(failed)} of {len(tasks)} genome(s) were not saved. "
+            f"Re-run with -gb yes to retry only these: genomes already on disk "
+            f"are skipped."
+        )
+        for n, gc in sorted(failed):
+            no_accession = (
+                gc is None
+                or not str(gc).strip()
+                or str(gc).strip().lower() == 'nan'
+            )
+            reason = "no accession in the VMR row" if no_accession else "download failed"
+            logging.warning(f"[genome]   missing VMR{n:07d}: {gc!r} ({reason})")
 
 
 #Executes the commands of the blast_plus function.
