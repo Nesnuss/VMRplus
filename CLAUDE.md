@@ -67,6 +67,7 @@ vmrplus/         # package holding the actual implementation
   hmms.py        # HMM collection/renaming into tabajara_family/tabajara_genera trees
   hyperlinks.py  # openpyxl hyperlink extraction/embedding for the VMR+ table
   reporting.py   # report_hmms.csv/.xlsx generation
+  repository.py  # HMMs_repository/ organisation by model type (replaces hmms/)
   pipeline.py    # main() — orchestrates the full flow (former __main__ block)
 tests/           # pytest suite (pure helpers only, see §5)
 tools/           # characterization/comparison scripts used during the refactor
@@ -109,6 +110,15 @@ Flow (key functions, now spread across the `vmrplus` modules above):
 6. **Collection/reports** — `collect_and_rename_hmms()` (`vmrplus/hmms.py`), `report_hmms.*`
    (`vmrplus/reporting.py`), final table reordered to `new_order` with embedded hyperlinks
    (`vmrplus/hyperlinks.py`).
+7. **HMM repository** — `build_hmms_repository()` (`vmrplus/repository.py`) reads
+   `hmm_library.csv` and **replaces** the flat `hmms/` directory with
+   `HMMs_repository/`, split into `conservative/` and `discriminative/` by the
+   `Model type` column and suffixed `_C` / `_D` (`vHMM_1.hmm` →
+   `discriminative/vHMM_1_D.hmm`). Models are moved, `hmms/` is removed once
+   empty, and a per-subdirectory + total tally is written to `VMR.log`. The CSV
+   is the authority — the type is never re-derived from the source path. Re-running
+   is idempotent. Also runnable standalone on a finished output directory:
+   `python3 -m vmrplus.repository <output_dir>` (`--copy` keeps `hmms/`).
 
 ## 4. Stack and dependencies
 
@@ -177,6 +187,9 @@ python3 VMRplus.py -v        # version
   databases (`makeblastdb`); aligned FASTA (MAFFT); generated `tabajara.conf`.
 - **Outputs** — `.hmm` under `tabajara_family/.../valid_HMMs` and `tabajara_genera/<genus>/...`;
   `report_hmms.csv/.xlsx` (columns `Family;Genus;Marker;#sequences;#profile HMMs`);
+  `hmm_library.csv/.xlsx` (traceability: `vHMM_ID;Taxon;Genus;Protein;Model type;...`);
+  `HMMs_repository/{conservative,discriminative}/` holding the collected models
+  (there is no `hmms/` directory in a finished run — see flow step 7);
   final table in the fixed `new_order` order (CSV + `.xlsx` with `openpyxl.Hyperlink`).
 
 ## 7. Code conventions

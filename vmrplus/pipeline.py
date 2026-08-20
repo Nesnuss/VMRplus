@@ -52,6 +52,7 @@ from .ncbi import (
 )
 from .paths import _safe_path_name, counter_prot, unique_dir
 from .reporting import generate_family_grouped_report
+from .repository import build_hmms_repository
 
 # Columns of the final table that hold whole numbers but reach pandas as
 # float64 -- a single empty cell in the terms table is enough to float the
@@ -938,6 +939,12 @@ VMR Program version {version} - 30 jan 2026
         logging.info("Collecting and renaming HMM files...")
         hmm_traceability = collect_and_rename_hmms(dir_marker, final_dir)
         generate_hmm_traceability_report(hmm_traceability, final_dir)
+
+        # ── Organise the HMMs by model type ───────────────────────────────
+        # Replaces the flat hmms/ directory with HMMs_repository/, split into
+        # conservative/ and discriminative/ and suffixed _C / _D. Guided by
+        # hmm_library.csv, so it must run after the report above.
+        build_hmms_repository(final_dir)
 
         final_table_csv = f'VMR+_{new_file.name}'
         table_file = os.path.join(final_dir, final_table_csv)
