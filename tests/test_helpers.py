@@ -24,7 +24,7 @@ import urllib.error
 import pandas as pd
 import pytest
 
-from vmrplus import config, markers, ncbi, paths, pipeline
+from vmrplus import config, hyperlinks, markers, ncbi, paths, pipeline
 
 vmr = types.SimpleNamespace(
     _safe_path_name=paths._safe_path_name,
@@ -320,3 +320,56 @@ class TestGenomeHeaderTag:
         # A space would truncate the FASTA id at the tag.
         assert ncbi._genome_header_tag(
             "Some Family", "Some Genus") == "Some_Family_Some_Genus"
+
+
+# ── excel_hyperlink_formula ────────────────────────────────────────────────
+class TestExcelHyperlinkFormula:
+    """The final table links through '=HYPERLINK()' formulas rather than real
+    cell hyperlinks: Excel caps a worksheet at 65,530 of the latter and, once
+    past it, opens the workbook in repair mode and discards every link. Four
+    linked columns per row reach that cap at ~16k rows."""
+
+    NAN = float("nan")
+
+    def test_text_display_is_quoted(self):
+        assert hyperlinks.excel_hyperlink_formula(
+            "https://www.ncbi.nlm.nih.gov/nuccore/FJ373894", "FJ373894"
+        ) == '=HYPERLINK("https://www.ncbi.nlm.nih.gov/nuccore/FJ373894","FJ373894")'
+
+    def test_numeric_display_stays_a_number(self):
+        # Quoting it would left-align the id and break numeric sorting.
+        assert hyperlinks.excel_hyperlink_formula(
+            "https://ictv.global/id/20240001", 20240001
+        ) == '=HYPERLINK("https://ictv.global/id/20240001",20240001)'
+
+    def test_integral_float_loses_its_trailing_zero(self):
+        assert hyperlinks.excel_hyperlink_formula("https://x/1", 42.0) \
+            == '=HYPERLINK("https://x/1",42)'
+
+    def test_quotes_in_the_display_text_are_doubled(self):
+        # A bare quote would terminate the string literal and corrupt the cell.
+        assert hyperlinks.excel_hyperlink_formula("https://x/1", 'Seg "L"') \
+            == '=HYPERLINK("https://x/1","Seg ""L""")'
+
+    def test_blank_display_falls_back_to_the_url(self):
+        assert hyperlinks.excel_hyperlink_formula("https://x/1", self.NAN) \
+            == '=HYPERLINK("https://x/1","https://x/1")'
+
+    @pytest.mark.parametrize("url", [None, "", "   ", "nan", float("nan")])
+    def test_no_url_means_no_formula(self, url):
+        assert hyperlinks.excel_hyperlink_formula(url, "FJ373894") is None
+
+    def test_surrounding_whitespace_is_stripped(self):
+        assert hyperlinks.excel_hyperlink_formula("  https://x/1 ", "  A  ") \
+            == '=HYPERLINK("https://x/1","A")'
+
+    def test_overlong_formula_is_refused(self):
+        # Excel silently corrupts a cell whose formula exceeds 8192 chars.
+        url = "https://x/" + "a" * hyperlinks.EXCEL_FORMULA_MAX_LEN
+        assert hyperlinks.excel_hyperlink_formula(url, "A") is None
+
+    def test_formula_at_the_limit_is_accepted(self):
+        url = "https://x/" + "a" * 8000
+        formula = hyperlinks.excel_hyperlink_formula(url, "A")
+        assert formula is not None
+        assert len(formula) <= hyperlinks.EXCEL_FORMULA_MAX_LEN

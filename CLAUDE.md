@@ -205,7 +205,8 @@ python3 VMRplus.py -v        # version
   `hmm_library.csv/.xlsx` (traceability: `vHMM_ID;Taxon;Genus;Protein;Model type;...`);
   `HMMs_repository/{conservative,discriminative}/` holding the collected models
   (there is no `hmms/` directory in a finished run — see flow step 7);
-  final table in the fixed `new_order` order (CSV + `.xlsx` with `openpyxl.Hyperlink`).
+  final table in the fixed `new_order` order (CSV + `.xlsx`; links are
+  `=HYPERLINK()` **formulas**, not `openpyxl.Hyperlink` objects — see §8).
 
 ## 7. Code conventions
 
@@ -234,6 +235,25 @@ python3 VMRplus.py -v        # version
 - **Large files** — `refdb/`, `markers/`, `genome_data/`, `.hmm`, output `.xlsx`, and the
   entire output directory **must not be committed** (covered by `.gitignore`). Note it also
   ignores `*.xlsx`/`*.csv`/`*.fasta` broadly — force-add example input data with `git add -f` if needed.
+- **Excel hyperlink cap** — a worksheet holds at most **65,530 real hyperlinks**
+  (the ones that create a relationship in `sheetN.xml.rels`); past that Excel
+  opens the workbook in repair mode and silently discards **every** link. The
+  final table links four columns per row and has one row per (genome × protein)
+  pair, so it reached that cap at ~16,400 rows. It therefore writes
+  `=HYPERLINK("<url>",<display>)` **formulas** (`excel_hyperlink_formula()` in
+  `vmrplus/hyperlinks.py`), which create no relationship and are not capped.
+  Do not switch back to `cell.hyperlink`. Cells with no text to click on are
+  left unlinked, and a formula over `EXCEL_FORMULA_MAX_LEN` (8192) chars is
+  skipped rather than written corrupt. Count the real hyperlinks in a
+  generated file with:
+  ```bash
+  python3 -c "
+  import zipfile,re
+  z=zipfile.ZipFile('VMR+_<file>.xlsx')
+  for s in [n for n in z.namelist() if re.match(r'xl/worksheets/sheet\d+\.xml$',n)]:
+      print(s, z.read(s).decode('utf8','replace').count('<hyperlink '))
+  "
+  ```
 - **Credentials in the template** — `TEMPLATE_CONFIG` contains a hardcoded example email +
   API key; do not treat them as real secrets nor add new secrets to the template.
 

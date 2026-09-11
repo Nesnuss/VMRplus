@@ -8,6 +8,74 @@ import re
 import pandas as pd
 from openpyxl.utils import get_column_letter
 
+# Excel caps a worksheet at 65,530 *real* hyperlinks (the ones that create a
+# relationship in sheetN.xml.rels). Past that it opens the workbook in repair
+# mode and drops every link at once. The VMR+ table writes a link in four
+# columns per row, so it crosses that line at roughly 16,400 rows -- well
+# inside a normal MSL run, where each (genome x protein) pair is a row.
+#
+# An '=HYPERLINK()' formula is not subject to that cap: it creates no
+# relationship at all, so the sheet stays small and Excel never repairs it.
+# The final table therefore links through formulas instead of cell.hyperlink.
+EXCEL_HYPERLINK_LIMIT = 65530
+
+# Excel refuses a formula longer than this, silently corrupting the cell.
+EXCEL_FORMULA_MAX_LEN = 8192
+
+
+def _is_blank(value):
+    """True for None, NaN, '' and the literal 'nan' the CSV round-trip emits."""
+    if value is None:
+        return True
+    if isinstance(value, float) and value != value:   # NaN
+        return True
+    text = str(value).strip()
+    return not text or text.lower() == 'nan'
+
+
+def _excel_quote(text):
+    """Quote *text* as an Excel string literal (a quote is doubled)."""
+    return '"' + str(text).replace('"', '""') + '"'
+
+
+def _excel_number(value):
+    """Render a number for a formula, dropping a float's trailing '.0'."""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def excel_hyperlink_formula(url, display):
+    """
+    Build an ``=HYPERLINK("<url>", <display>)`` formula for one cell.
+
+    *display* keeps the cell's original value: a number is emitted unquoted
+    so it stays right-aligned and sortable as a number, anything else is
+    quoted (and its own quotes doubled). A blank *display* falls back to
+    showing the URL itself.
+
+    Returns None -- meaning "leave the cell alone" -- when there is no usable
+    URL, or when the formula would exceed Excel's length limit.
+    """
+    if _is_blank(url):
+        return None
+
+    url = str(url).strip()
+
+    if _is_blank(display):
+        shown = _excel_quote(url)
+    elif isinstance(display, bool):
+        shown = _excel_quote(display)
+    elif isinstance(display, (int, float)):
+        shown = _excel_number(display)
+    else:
+        shown = _excel_quote(str(display).strip())
+
+    formula = f'=HYPERLINK({_excel_quote(url)},{shown})'
+    if len(formula) > EXCEL_FORMULA_MAX_LEN:
+        return None
+    return formula
+
 
 def hyperlink_Protein_ID(protein_id):
     try:

@@ -20,7 +20,6 @@ import pandas as pd
 from Bio import Entrez
 from openpyxl import load_workbook
 from openpyxl.styles import Font
-from openpyxl.worksheet.hyperlink import Hyperlink
 
 from . import ncbi
 from .config import (
@@ -34,6 +33,7 @@ from .config import (
 from .external import blast_plus, make_blast_db, run_mafft, run_tabajara_con, run_tabajara_dis
 from .hmms import collect_and_rename_hmms, generate_hmm_traceability_report
 from .hyperlinks import (
+    excel_hyperlink_formula,
     hyperlink_code,
     hyperlink_code_seg,
     hyperlink_extrator,
@@ -1072,9 +1072,9 @@ VMR Program version {version} - set 2026
         hyperlink_font = Font(color="0563C1", underline="single")
 
         # Map: display column name  →  auxiliary column that holds the URL as
-        # plain text. The URL is embedded directly INTO the display cell, so
-        # the auxiliary column can be deleted afterwards without breaking the
-        # hyperlinks.
+        # plain text. The URL ends up inside the display cell's own formula,
+        # so the auxiliary column can be deleted afterwards without breaking
+        # the links.
         hyperlink_column_map = {
             'ICTV_ID':          'ICVT_ID link',
             'Accessions Link':  'Accession link(s) per segment(s)',
@@ -1091,10 +1091,17 @@ VMR Program version {version} - set 2026
 
         # URLs are read straight from the in-memory DataFrame (df_xl_final) —
         # the reliable source of truth — instead of reading them back from
-        # worksheet cells (which was fragile). Each display cell gets an
-        # explicit Hyperlink object, which is more robust across openpyxl
-        # versions than assigning a bare string. DataFrame row i maps to
+        # worksheet cells (which was fragile). DataFrame row i maps to
         # worksheet row i + 2 (row 1 is the header).
+        #
+        # The link is written as an '=HYPERLINK()' FORMULA rather than a real
+        # cell.hyperlink: Excel caps a worksheet at EXCEL_HYPERLINK_LIMIT real
+        # hyperlinks and, once past it, opens the workbook in repair mode and
+        # discards every link. Four linked columns per row hit that cap at
+        # ~16k rows, which a normal MSL run exceeds. Formulas create no
+        # relationship, so they are not capped and keep the file small.
+        linked = skipped_blank = skipped_long = 0
+
         for display_col, link_col in hyperlink_column_map.items():
             if display_col not in col_index or link_col not in df_xl_final.columns:
                 continue  # column absent in this run — skip silently
@@ -1104,15 +1111,33 @@ VMR Program version {version} - set 2026
             for df_idx, raw_url in enumerate(df_xl_final[link_col].tolist()):
                 if pd.isna(raw_url):
                     continue
-                url = str(raw_url).strip()
-                if not url or url.lower() == 'nan':
-                    continue
 
                 disp_cell = ws_final_table.cell(row=df_idx + 2, column=d_col)
-                disp_cell.hyperlink = Hyperlink(ref=disp_cell.coordinate, target=url)
+
+                # A link on an empty cell is invisible to the reader: there is
+                # nothing to click. Leave those cells untouched.
+                if disp_cell.value is None or not str(disp_cell.value).strip():
+                    skipped_blank += 1
+                    continue
+
+                formula = excel_hyperlink_formula(raw_url, disp_cell.value)
+                if formula is None:
+                    skipped_long += 1
+                    continue
+
+                disp_cell.value = formula
                 disp_cell.font = hyperlink_font
+                linked += 1
 
         wb_final_table.save(xlsx_file)
+
+        logging.info(
+            f"Embedded {linked} hyperlink formula(s) in the final table "
+            f"({skipped_blank} skipped: no text to click on"
+            + (f"; {skipped_long} skipped: URL too long for Excel"
+               if skipped_long else "")
+            + ")."
+        )
 
         logging.info('Generating final report...\n')
         logging.info('Final report')
