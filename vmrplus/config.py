@@ -7,10 +7,10 @@ import configparser
 import os
 import sys
 
-version = "1.7.14"
+version = "1.7.17"
 
 help_text = """
-VMR Program version """+version+""" -  jul 2026
+VMR Program version """+version+""" -  set 2026
 
 Generate an incremented table of the ICTV's VMR/MSL table
 

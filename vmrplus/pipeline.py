@@ -459,7 +459,7 @@ def main(args):
 
     elif args.v:
         print(f"""
-VMR Program version {version} - 30 jan 2026
+VMR Program version {version} - set 2026
 (c) 2024. Rafael Santos da Silva & Arthur Gruber
 """)
 
