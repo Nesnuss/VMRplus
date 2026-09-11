@@ -64,7 +64,7 @@ TABAJARA_DIS_DEFAULTS = {
 }
 
 # Extra tabajara.pl parameters applied (in both conservative and
-# discriminatory modes) to a marker whose FASTA holds a single sequence, so
+# discriminative modes) to a marker whose FASTA holds a single sequence, so
 # tabajara can still build a profile HMM from that lone sequence.
 # Note: -mb is the MAXIMUM block size; it must stay above the pipeline's
 # minimum block size (-b, default 20) or tabajara selects 0 blocks and builds
@@ -132,11 +132,11 @@ cs = yes
 
 
 [tabajara_dis]
-; Parameters for the DISCRIMINATORY Tabajara run (tabajara.pl -m d)
+; Parameters for the DISCRIMINATIVE Tabajara run (tabajara.pl -m d)
 ; Any key written here is passed directly as -key value to tabajara.pl
 ; Add any extra tabajara parameter freely — unknown keys are forwarded as-is.
 ;
-; Mode (should remain 'd' for the discriminatory run)
+; Mode (should remain 'd' for the discriminative run)
 m = d
 ; Threshold
 t = 0.5

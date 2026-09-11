@@ -43,14 +43,10 @@ class TestModelLayout:
     def test_conservative(self):
         assert repository._model_layout("conservative") == ("conservative", "_C")
 
-    def test_discriminatory_maps_to_discriminative(self):
-        # The pipeline writes 'discriminatory'; the directory is 'discriminative'.
-        assert repository._model_layout("discriminatory") == ("discriminative", "_D")
-
-    def test_discriminative_spelling_also_accepted(self):
+    def test_discriminative(self):
         assert repository._model_layout("discriminative") == ("discriminative", "_D")
 
-    @pytest.mark.parametrize("raw", ["  Conservative ", "DISCRIMINATORY"])
+    @pytest.mark.parametrize("raw", ["  Conservative ", "DISCRIMINATIVE"])
     def test_case_and_whitespace_tolerant(self, raw):
         assert repository._model_layout(raw) is not None
 
@@ -64,8 +60,8 @@ class TestBuildHmmsRepository:
     def test_files_are_split_and_suffixed(self, tmp_path):
         _make_output_dir(tmp_path, [
             ("vHMM_1", "conservative"),
-            ("vHMM_2", "discriminatory"),
-            ("vHMM_3", "discriminatory"),
+            ("vHMM_2", "discriminative"),
+            ("vHMM_3", "discriminative"),
         ])
         counts = repository.build_hmms_repository(tmp_path)
 
@@ -81,7 +77,7 @@ class TestBuildHmmsRepository:
         assert not (tmp_path / "hmms").exists()
 
     def test_file_contents_survive_the_move(self, tmp_path):
-        _make_output_dir(tmp_path, [("vHMM_7", "discriminatory")])
+        _make_output_dir(tmp_path, [("vHMM_7", "discriminative")])
         repository.build_hmms_repository(tmp_path)
         moved = tmp_path / "HMMs_repository" / "discriminative" / "vHMM_7_D.hmm"
         assert moved.read_text() == "NAME  vHMM_7\n//\n"
@@ -100,7 +96,7 @@ class TestBuildHmmsRepository:
         assert (tmp_path / "HMMs_repository" / "conservative" / "vHMM_1_C.hmm").is_file()
 
     def test_rerunning_is_idempotent(self, tmp_path):
-        _make_output_dir(tmp_path, [("vHMM_1", "conservative"), ("vHMM_2", "discriminatory")])
+        _make_output_dir(tmp_path, [("vHMM_1", "conservative"), ("vHMM_2", "discriminative")])
         first = repository.build_hmms_repository(tmp_path)
         second = repository.build_hmms_repository(tmp_path)
 
@@ -154,8 +150,8 @@ class TestSummaryReport:
     def test_summary_reports_each_subdirectory_and_the_total(self, tmp_path, caplog):
         _make_output_dir(tmp_path, [
             ("vHMM_1", "conservative"),
-            ("vHMM_2", "discriminatory"),
-            ("vHMM_3", "discriminatory"),
+            ("vHMM_2", "discriminative"),
+            ("vHMM_3", "discriminative"),
         ])
         with caplog.at_level("INFO"):
             repository.build_hmms_repository(tmp_path)

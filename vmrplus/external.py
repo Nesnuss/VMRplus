@@ -226,7 +226,7 @@ def run_tabajara_con(fasta_family, class_genus, output_dir, tabajara_params=None
 
 def run_tabajara_dis(fasta_family, class_genus, output_dir, tabajara_params=None):
     """
-    Runs tabajara.pl in discriminatory mode using a temporary .conf file.
+    Runs tabajara.pl in discriminative mode using a temporary .conf file.
     """
     output_dis = output_dir / "tabajara_genera"
     conf_path  = output_dir / "tabajara.conf"

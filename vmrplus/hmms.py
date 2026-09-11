@@ -146,7 +146,7 @@ def collect_and_rename_hmms(markers_dir, output_base_dir):
                             'Taxon': family_name,
                             'Genus': genus_name,
                             'Protein': marker_name,
-                            'Model type': 'discriminatory',
+                            'Model type': 'discriminative',
                             'Length': meta['LENG'],
                             '# of sequences': meta['NSEQ'],
                             'Cutoff score': meta['CUTOFF_SCORE'],

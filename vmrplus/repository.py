@@ -3,7 +3,7 @@
 ``collect_and_rename_hmms`` (see hmms.py) gathers every valid HMM into a
 single flat ``hmms/`` directory as ``vHMM_1.hmm``, ``vHMM_2.hmm``, ... and
 records for each one whether it is a family-wide *conservative* model or a
-genus-level *discriminatory* one. That classification is written to
+genus-level *discriminative* one. That classification is written to
 ``hmm_library.csv`` alongside the id.
 
 This module consumes those two artefacts and replaces the flat directory
@@ -43,11 +43,8 @@ ID_COLUMN = "vHMM_ID"
 TYPE_COLUMN = "Model type"
 
 # 'Model type' as written in hmm_library.csv -> (subdirectory, filename suffix).
-# 'discriminative' is accepted alongside the 'discriminatory' the pipeline
-# actually writes, so a hand-edited library file still lands correctly.
 MODEL_TYPE_LAYOUT = {
     'conservative':   ('conservative',   '_C'),
-    'discriminatory': ('discriminative', '_D'),
     'discriminative': ('discriminative', '_D'),
 }
 

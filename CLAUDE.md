@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - For each (genome × target-protein) pair, search proteins on Entrez, run `blastp`
   against a family reference database, and extract the corresponding marker.
 - Group markers by family/genus, align with MAFFT, and build profile HMMs
-  (via `tabajara.pl`) in conservative and discriminatory modes.
+  (via `tabajara.pl`) in conservative and discriminative modes.
 - Emit an **incremented VMR+ table** (CSV + `.xlsx` with hyperlinks) and a tree of
   HMMs per family/genus, plus traceability reports.
 
@@ -49,7 +49,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Stockholm format (`.sto`)** — annotated MSA format used by HMMER. **Not generated
   directly here** (MAFFT emits aligned FASTA; `tabajara.pl` bridges to `hmmbuild`).
 - **tabajara.pl** — external Perl tool that, from the MSA, selects blocks and calls
-  `hmmbuild`. Modes: `-m c` (conservative) and `-m d` (discriminatory). Single-sequence
+  `hmmbuild`. Modes: `-m c` (conservative) and `-m d` (discriminative). Single-sequence
   markers additionally get `-sa 1 -sr yes -mb 60` so an HMM can still be built.
 
 ## 3. Architecture and directory structure
