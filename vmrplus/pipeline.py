@@ -1053,8 +1053,6 @@ VMR Program version {version} - set 2026
         _as_integer_columns(df_csv)
         df_csv.to_csv(table_file, index=False, sep=';')
 
-        final_table_xl = f'VMR+_{input_file}'
-        output_path = os.path.join(final_dir, final_table_xl)
         logging.info('Generating .xlsx file\n')
 
         csv_file = Path(table_file)
