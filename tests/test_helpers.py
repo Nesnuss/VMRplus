@@ -216,3 +216,107 @@ class TestIsRetryable:
         # Timeouts and truncated reads carry no status and are transient.
         assert ncbi._is_retryable(socket.timeout()) is True
         assert ncbi._is_retryable(urllib.error.URLError("boom")) is True
+
+
+# ── resolve_genome_taxon ───────────────────────────────────────────────────
+class TestResolveGenomeTaxon:
+    """The taxon a '-gb yes' genome is filed under. VMR rows are not always
+    complete: some carry only a Subfamily, and 1612 rows of MSL41 carry no
+    Family at all. Those are grouped by the nearest rank they do carry
+    instead of being dumped together into 'unclassified/'."""
+
+    NAN = float("nan")
+
+    def test_family_wins(self):
+        row = {"Family": "Ackermannviridae", "Subfamily": "Weiservirinae",
+               "Class": "Caudoviricetes", "Genus": "Agtrevirus"}
+        assert ncbi.resolve_genome_taxon(row) == "Ackermannviridae"
+
+    def test_subfamily_replaces_missing_family(self):
+        row = {"Family": self.NAN, "Subfamily": "Weiservirinae",
+               "Class": "Caudoviricetes", "Genus": "Unicornvirus"}
+        assert ncbi.resolve_genome_taxon(row) == "Weiservirinae"
+
+    def test_walks_up_when_family_and_subfamily_are_missing(self):
+        # No family/subfamily, but the record is still a Caudoviricetes.
+        row = {"Family": self.NAN, "Subfamily": self.NAN,
+               "Class": "Caudoviricetes", "Realm": "Duplodnaviria",
+               "Genus": "Actaeavirus"}
+        assert ncbi.resolve_genome_taxon(row) == "Caudoviricetes"
+
+    def test_nearest_rank_above_wins_over_a_broader_one(self):
+        row = {"Family": self.NAN, "Suborder": "Tevenvirineae",
+               "Order": "Caudovirales", "Class": "Caudoviricetes"}
+        assert ncbi.resolve_genome_taxon(row) == "Tevenvirineae"
+
+    def test_genus_is_the_last_resort(self):
+        # Nothing above the family level either -> fall back below it.
+        row = {"Family": self.NAN, "Subfamily": self.NAN, "Class": self.NAN,
+               "Genus": "Actaeavirus"}
+        assert ncbi.resolve_genome_taxon(row) == "Actaeavirus"
+
+    def test_species_when_genus_is_missing_too(self):
+        row = {"Family": self.NAN, "Genus": self.NAN,
+               "Species": "Chlorella virus XW01"}
+        assert ncbi.resolve_genome_taxon(row) == "Chlorella virus XW01"
+
+    def test_empty_row_is_unclassified(self):
+        assert ncbi.resolve_genome_taxon({}) == "unclassified"
+
+    def test_literal_nan_string_is_not_a_name(self):
+        # The .xlsx -> CSV -> DataFrame round-trip can surface 'nan' as text.
+        row = {"Family": "nan", "Subfamily": "nan", "Class": "Caudoviricetes"}
+        assert ncbi.resolve_genome_taxon(row) == "Caudoviricetes"
+
+    def test_surrounding_whitespace_is_stripped(self):
+        assert ncbi.resolve_genome_taxon({"Family": "  Ackermannviridae "}) \
+            == "Ackermannviridae"
+
+    def test_accepts_a_pandas_row(self):
+        row = pd.DataFrame([{"Family": None, "Subfamily": None,
+                             "Class": "Caudoviricetes"}]).iloc[0]
+        assert ncbi.resolve_genome_taxon(row) == "Caudoviricetes"
+
+
+# ── _genome_header_tag ─────────────────────────────────────────────────────
+class TestGenomeHeaderTag:
+    """The tag prepended to every '-gb yes' genome header: the resolved taxon
+    paired with the genus, so the saved sequence id carries its taxonomy."""
+
+    NAN = float("nan")
+
+    def test_family_and_genus(self):
+        assert ncbi._genome_header_tag(
+            "Ackermannviridae", "Agtrevirus") == "Ackermannviridae_Agtrevirus"
+
+    def test_resolved_upper_rank_replaces_unclassified(self):
+        # A row with no family is tagged with the rank it does carry.
+        assert ncbi._genome_header_tag(
+            "Caudoviricetes", "Actaeavirus") == "Caudoviricetes_Actaeavirus"
+
+    def test_genus_only_row_is_not_repeated(self):
+        # resolve_genome_taxon() fell back to the genus itself.
+        assert ncbi._genome_header_tag(
+            "Actaeavirus", "Actaeavirus") == "Actaeavirus"
+
+    def test_missing_genus_falls_back(self):
+        assert ncbi._genome_header_tag(
+            "Ackermannviridae", self.NAN) == "Ackermannviridae_unclassified"
+
+    def test_unresolved_taxon_with_a_genus(self):
+        assert ncbi._genome_header_tag(
+            "unclassified", "Actaeavirus") == "unclassified_Actaeavirus"
+
+    def test_nothing_at_all_yields_no_prefix(self):
+        assert ncbi._genome_header_tag(self.NAN, self.NAN) == ""
+        assert ncbi._genome_header_tag("unclassified", self.NAN) == ""
+
+    def test_literal_nan_string_is_not_a_name(self):
+        # The .xlsx -> CSV -> DataFrame round-trip can surface 'nan' as text.
+        assert ncbi._genome_header_tag(
+            "nan", "Actaeavirus") == "unclassified_Actaeavirus"
+
+    def test_whitespace_is_collapsed(self):
+        # A space would truncate the FASTA id at the tag.
+        assert ncbi._genome_header_tag(
+            "Some Family", "Some Genus") == "Some_Family_Some_Genus"

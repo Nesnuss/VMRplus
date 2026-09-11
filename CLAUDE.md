@@ -79,12 +79,27 @@ The orchestrator is `vmrplus.pipeline.main(args)`, invoked from `VMRplus.py`'s
 auto-suffixed by `unique_dir()`, containing `VMR.log`, `refdb/`, `markers/`,
 `genome_data/` (if `-gb yes`), the `tabajara_family/` and `tabajara_genera/`
 subtrees, `report_hmms.csv/.xlsx`, and `VMR+_<input>.xlsx`. When `-gb yes`
-downloads the full genomes, each saved FASTA header is prefixed with the
-taxonomy from its VMR record — `<family>_<genus>_<accession> ...` (e.g.
-`>Ackermannviridae_Agtrevirus_FJ373894.1 ...`). The family part falls back to
-Subfamily, or is omitted entirely (no prefix) when neither exists; the genus
-part falls back to the literal `unclassified`; whitespace in names is collapsed
-to `_` (`_genome_header_tag()` in `vmrplus/ncbi.py`).
+downloads the full genomes, files are written to
+`genome_data/<taxon>/`, where `<taxon>` is the **nearest taxonomic level the
+VMR record actually carries** — `resolve_genome_taxon()` in `vmrplus/ncbi.py`
+tries `GENOME_TAXON_RANKS` in order: Family → Subfamily → the ranks *above*
+(Suborder → Order → Subclass → Class → Subphylum → Phylum → Subkingdom →
+Kingdom → Subrealm → Realm) → then Genus → Subgenus → Species. A record with
+no Family but a Class of Caudoviricetes therefore lands in
+`genome_data/Caudoviricetes/` rather than a catch-all directory; only a row
+with **every** rank empty falls back to `unclassified/`. Each saved FASTA
+header is prefixed with the same taxonomy —
+`<taxon>_<genus>_<accession> ...` (e.g. `>Ackermannviridae_Agtrevirus_FJ373894.1 ...`,
+`>Caudoviricetes_Actaeavirus_OR420743.1 ...`). The genus part falls back to
+`unclassified` when the Genus field is empty; when the resolved taxon *is* the
+genus the name is not repeated (`>Actaeavirus_OR420743.1 ...`), and the prefix
+is omitted entirely only when there is no taxonomy at all. Whitespace in names
+is collapsed to `_` (`_genome_header_tag()` in `vmrplus/ncbi.py`).
+
+Note this fallback applies to the **genome dataset only**. The marker/refdb
+side of the pipeline still uses the plain Family → Subfamily → `unclassified`
+fallback (`vmrplus/pipeline.py`), because those names are matched against the
+terms table's `Name` column, which is family-level.
 
 Flow (key functions, now spread across the `vmrplus` modules above):
 1. **Args/config** — `load_config()`; CLI×config conflict in `detect_cli_config_conflict()`

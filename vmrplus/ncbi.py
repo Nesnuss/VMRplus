@@ -409,37 +409,84 @@ def refdb(name_protein, taxid, name_family, path, protein_name, min_len, max_len
 # Whole-genome download  (-gb yes)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _genome_header_tag(family, subfamily, genus):
+def _is_filled(value):
+    """True when a VMR cell actually carries a name (not NaN/empty/'nan')."""
+    return (isinstance(value, str)
+            and value.strip()
+            and value.strip().lower() != 'nan')
+
+
+# VMR/MSL taxonomy columns tried, in order, to name the taxon a genome is
+# filed under. Family and Subfamily come first (the historical behaviour);
+# when the record carries neither, the search walks UP the hierarchy so the
+# genome is still grouped with its relatives -- a record with no family but a
+# Class of Caudoviricetes is filed under 'Caudoviricetes' rather than being
+# dumped into 'unclassified'. Genus and below are the last resort, for the
+# rows whose only filled rank sits below the family level.
+GENOME_TAXON_RANKS = (
+    'Family', 'Subfamily',
+    'Suborder', 'Order', 'Subclass', 'Class', 'Subphylum', 'Phylum',
+    'Subkingdom', 'Kingdom', 'Subrealm', 'Realm',
+    'Genus', 'Subgenus', 'Species',
+)
+
+# Used only when a row has no filled rank at all.
+UNCLASSIFIED = 'unclassified'
+
+
+def resolve_genome_taxon(row):
+    """
+    Pick the taxon name a VMR/MSL row's genome is filed under.
+
+    Returns the value of the first filled column of GENOME_TAXON_RANKS, i.e.
+    the nearest taxonomic level the record actually carries, or the literal
+    'unclassified' when every rank is empty.
+
+    *row* is anything with a ``.get(column, default)`` -- a pandas Series or
+    a plain dict.
+    """
+    for rank in GENOME_TAXON_RANKS:
+        value = row.get(rank, "")
+        if _is_filled(value):
+            return value.strip()
+    return UNCLASSIFIED
+
+
+def _genome_header_tag(taxon, genus):
     """
     Build the taxonomic prefix prepended to each genome FASTA header.
 
-    The prefix is '<family>_<genus>', where:
+    The prefix is '<taxon>_<genus>', where:
 
-      * the family part is the Family, falling back to the Subfamily; if
-        NEITHER is available, no prefix is added at all (returns '').
+      * the taxon part is the name resolved by resolve_genome_taxon() -- the
+        Family, or the nearest rank the record does carry.
       * the genus part is the Genus, falling back to the literal
         'unclassified' when the Genus field is empty/missing.
 
+    When the resolved taxon IS the genus (the row's only filled rank), the
+    name is not repeated and the prefix is just '<genus>'.
+
+    When neither is available there is nothing to say, so no prefix is added
+    at all (returns '').
+
     Whitespace inside any name is collapsed to '_' so the resulting tag
-    cannot truncate a FASTA sequence identifier. Returns '' when no prefix
-    should be added.
+    cannot truncate a FASTA sequence identifier.
     """
-    if isinstance(family, str) and family.strip():
-        fam_part = family
-    elif isinstance(subfamily, str) and subfamily.strip():
-        fam_part = subfamily
-    else:
+    has_taxon = _is_filled(taxon) and taxon.strip() != UNCLASSIFIED
+    has_genus = _is_filled(genus)
+
+    if not has_taxon and not has_genus:
         return ""
 
-    if (isinstance(genus, str) and genus.strip()
-            and genus.strip().lower() != 'nan'):
-        gen_part = genus
-    else:
-        gen_part = "unclassified"
+    tax_part = taxon.strip() if has_taxon else UNCLASSIFIED
+    gen_part = genus.strip() if has_genus else UNCLASSIFIED
 
-    fam_part = "_".join(fam_part.split())
+    tax_part = "_".join(tax_part.split())
     gen_part = "_".join(gen_part.split())
-    return f"{fam_part}_{gen_part}"
+
+    if tax_part == gen_part:
+        return tax_part
+    return f"{tax_part}_{gen_part}"
 
 
 def _normalize_accession(token):
@@ -462,11 +509,13 @@ def _normalize_accession(token):
     return token.lstrip('.,;:-_')
 
 
-def download_genome_fasta(seq_number, genome_code, family, genome_data_dir,
+def download_genome_fasta(seq_number, genome_code, taxon, genome_data_dir,
                           taxon_tag=""):
     """
     Downloads the complete nucleotide genome (FASTA) of ONE VMR/MSL
-    individual and saves it under genome_data/<family>/.
+    individual and saves it under genome_data/<taxon>/, where *taxon* is the
+    name resolved by resolve_genome_taxon() -- the Family when the record has
+    one, otherwise the nearest taxonomic level it does carry.
 
     All segments of a segmented genome are fetched in a single efetch call
     and written to one file. The file is named:
@@ -477,16 +526,17 @@ def download_genome_fasta(seq_number, genome_code, family, genome_data_dir,
     'Virus GENBANK accession' field (version suffixes removed) with '-'.
 
     Every FASTA header is prefixed with *taxon_tag* (e.g.
-    'Ackermannviridae_Agtrevirus') when non-empty, so the saved sequence
-    ids carry their family/genus. An empty tag leaves the headers untouched.
+    'Ackermannviridae_Agtrevirus', 'Weiservirinae_Unicornvirus' or
+    'Caudoviricetes_Actaeavirus') when non-empty, so the saved sequence ids
+    carry their taxonomy. An empty tag leaves the headers untouched.
 
     Existing files are left untouched (allows resuming). Returns the output
     path on success, or None on skip/failure.
     """
     prefix = f"VMR{seq_number:07d}"
 
-    fam = family if isinstance(family, str) and family.strip() else 'unclassified'
-    fam_dir = os.path.join(genome_data_dir, _safe_path_name(fam))
+    tax = taxon.strip() if _is_filled(taxon) else UNCLASSIFIED
+    fam_dir = os.path.join(genome_data_dir, _safe_path_name(tax))
     os.makedirs(fam_dir, exist_ok=True)
 
     # Validate accession field
@@ -608,8 +658,10 @@ def download_all_genomes(tableX, final_dir, num_threads):
     its complete genome via download_genome_fasta.
 
     A sequential counter (1-based, in table order) is assigned to each row
-    and rendered as VMR<counter:07d>. Family is resolved with the same
-    fallback used elsewhere: Family → Subfamily → 'unclassified'.
+    and rendered as VMR<counter:07d>. The destination directory is named by
+    resolve_genome_taxon(): Family → Subfamily → the nearest rank above
+    (Suborder … Realm) → Genus and below, and only 'unclassified' for a row
+    with no taxonomy at all.
 
     Runs in parallel when num_threads is set (reusing the -thr pool and the
     NCBI rate limiter), otherwise sequentially.
@@ -622,31 +674,26 @@ def download_all_genomes(tableX, final_dir, num_threads):
     for i in range(len(tableX)):
         row         = tableX.iloc[i]
         genome_code = row.get("Virus GENBANK accession", "")
-        family      = row.get("Family", "")
-        subfamily   = row.get("Subfamily", "")
-
         genus       = row.get("Genus", "")
 
-        if isinstance(family, str) and family.strip():
-            fam = family
-        elif isinstance(subfamily, str) and subfamily.strip():
-            fam = subfamily
-        else:
-            fam = 'unclassified'
+        # Directory: the nearest taxonomic level the row carries. Records
+        # without a Family are grouped by their Subfamily, else by the
+        # closest rank above it (Suborder … Realm), else by Genus and below;
+        # only a row with no taxonomy at all lands in 'unclassified/'.
+        tax = resolve_genome_taxon(row)
 
-        # Header prefix uses its own resolution (no 'unclassified' family
-        # fallback): '' when neither family nor subfamily is available.
-        tag = _genome_header_tag(family, subfamily, genus)
+        # Header prefix: the same taxon, paired with the genus.
+        tag = _genome_header_tag(tax, genus)
 
-        tasks.append((i + 1, genome_code, fam, tag))   # 1-based counter
+        tasks.append((i + 1, genome_code, tax, tag))   # 1-based counter
 
     failed = []
 
     if num_threads is not None:
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = {
-                executor.submit(download_genome_fasta, n, gc, fam, genome_data_dir, tag): (n, gc)
-                for (n, gc, fam, tag) in tasks
+                executor.submit(download_genome_fasta, n, gc, tax, genome_data_dir, tag): (n, gc)
+                for (n, gc, tax, tag) in tasks
             }
             for fut in as_completed(futures):
                 n, gc = futures[fut]
@@ -657,8 +704,8 @@ def download_all_genomes(tableX, final_dir, num_threads):
                     logging.error(f"[genome] VMR{n:07d} ({gc}) raised: {e}", exc_info=True)
                     failed.append((n, gc))
     else:
-        for (n, gc, fam, tag) in tasks:
-            if download_genome_fasta(n, gc, fam, genome_data_dir, tag) is None:
+        for (n, gc, tax, tag) in tasks:
+            if download_genome_fasta(n, gc, tax, genome_data_dir, tag) is None:
                 failed.append((n, gc))
 
     logging.info(f"[genome] Genome download step finished ({len(tasks)} individual(s) processed).")
