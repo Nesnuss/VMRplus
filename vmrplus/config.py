@@ -75,6 +75,47 @@ TABAJARA_SINGLE_SEQ_PARAMS = {
     'mb': '60',
 }
 
+# Human-readable description of each tabajara parameter, used to comment the
+# generated config template. Keys missing from this map are still written out,
+# just without a comment line.
+TABAJARA_PARAM_DESCRIPTIONS = {
+    'm': "Mode ('c' conservative / 'd' discriminative)",
+    't': 'Threshold',
+    'p': 'Percentage of sequences',
+    'w': 'Window size',
+    'b': 'Block size (minimum)',
+    'cs': 'Conserved sites (yes/no)',
+    'sa': 'Sequence alignment flag',
+    'sr': 'Single-sequence run (yes/no)',
+    'mb': 'Maximum block size',
+}
+
+# Order in which the parameters are written to the config template; any key not
+# listed here is appended afterwards, in the defaults dict's own order.
+TABAJARA_PARAM_ORDER = ('m', 't', 'p', 'w', 'b', 'cs', 'sa', 'sr', 'mb')
+
+
+def format_tabajara_section(params, commented=False):
+    """Renders the body of a [tabajara_*] section from a parameters dict.
+
+    Keeps the generated template in sync with TABAJARA_CON_DEFAULTS /
+    TABAJARA_DIS_DEFAULTS, so changing a default there changes the template too.
+    With commented=True the ``key = value`` lines are prefixed with ';', i.e.
+    written as inactive suggestions the user can switch on by hand.
+    """
+    keys = [k for k in TABAJARA_PARAM_ORDER if k in params]
+    keys += [k for k in params if k not in keys]
+
+    prefix = ';' if commented else ''
+    lines = []
+    for key in keys:
+        description = TABAJARA_PARAM_DESCRIPTIONS.get(key)
+        if description:
+            lines.append(f"; {description}")
+        lines.append(f"{prefix}{key} = {params[key]}")
+    return "\n".join(lines)
+
+
 TEMPLATE_CONFIG = """\
 ; VMR Program - Configuration File Template
 ; Version: {version}
@@ -116,45 +157,57 @@ gb = no
 ; Parameters for the CONSERVATIVE Tabajara run (tabajara.pl -m c)
 ; Any key written here is passed directly as -key value to tabajara.pl
 ; Add any extra tabajara parameter freely — unknown keys are forwarded as-is.
+; The values below are the program's built-in defaults
+; (TABAJARA_CON_DEFAULTS); 'm' should remain 'c' for the conservative run.
 ;
-; Mode (should remain 'c' for the conservative run)
-m = c
-; Threshold
-t = 0.5
-; Percentage of sequences
-p = 50
-; Window size
-w = 15
-; Block size
-b = 20
-; Conserved sites (yes/no)
-cs = yes
+{con_params}
+;
+; Single-sequence parameters. The program applies these AUTOMATICALLY (in both
+; the conservative and the discriminative run) to a marker whose genus FASTA
+; holds a single sequence, so tabajara can still build a profile HMM from that
+; lone sequence. They are listed here for reference; uncomment them only to
+; force the same behaviour on every run.
+; Note: 'mb' is the MAXIMUM block size and must stay above the minimum block
+; size 'b' above, or tabajara selects 0 blocks and builds no HMM.
+{single_seq_params}
 
 
 [tabajara_dis]
 ; Parameters for the DISCRIMINATIVE Tabajara run (tabajara.pl -m d)
 ; Any key written here is passed directly as -key value to tabajara.pl
 ; Add any extra tabajara parameter freely — unknown keys are forwarded as-is.
+; The values below are the program's built-in defaults
+; (TABAJARA_DIS_DEFAULTS); 'm' should remain 'd' for the discriminative run.
 ;
-; Mode (should remain 'd' for the discriminative run)
-m = d
-; Threshold
-t = 0.5
-; Percentage of sequences
-p = 50
-; Window size
-w = 15
-; Block size
-b = 20
-; Conserved sites (yes/no)
-cs = yes
+{dis_params}
+;
+; Single-sequence parameters. The program applies these AUTOMATICALLY (in both
+; the conservative and the discriminative run) to a marker whose genus FASTA
+; holds a single sequence, so tabajara can still build a profile HMM from that
+; lone sequence. They are listed here for reference; uncomment them only to
+; force the same behaviour on every run.
+; Note: 'mb' is the MAXIMUM block size and must stay above the minimum block
+; size 'b' above, or tabajara selects 0 blocks and builds no HMM.
+{single_seq_params}
 """
+
+
+def render_config_template():
+    """Returns the config template text, with the tabajara sections filled in
+    from the defaults dicts (so they can never advertise stale values)."""
+    return TEMPLATE_CONFIG.format(
+        version=version,
+        con_params=format_tabajara_section(TABAJARA_CON_DEFAULTS),
+        dis_params=format_tabajara_section(TABAJARA_DIS_DEFAULTS),
+        single_seq_params=format_tabajara_section(TABAJARA_SINGLE_SEQ_PARAMS,
+                                                  commented=True),
+    )
 
 
 def generate_config_template():
     """Generates a VMR_config_template.ini file in the current directory."""
     template_path = "VMR_config_template.ini"
-    content = TEMPLATE_CONFIG.format(version=version)
+    content = render_config_template()
     with open(template_path, "w") as f:
         f.write(content)
     print(f"Config template generated: {template_path}")

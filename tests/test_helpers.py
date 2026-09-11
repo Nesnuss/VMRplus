@@ -17,6 +17,7 @@ it. They are gathered below under a single ``vmr`` namespace so the
 assertions -- unchanged from before the refactor -- keep reading ``vmr.<fn>``.
 """
 
+import configparser
 import socket
 import types
 import urllib.error
@@ -373,3 +374,46 @@ class TestExcelHyperlinkFormula:
         formula = hyperlinks.excel_hyperlink_formula(url, "A")
         assert formula is not None
         assert len(formula) <= hyperlinks.EXCEL_FORMULA_MAX_LEN
+
+
+# ── TEMPLATE_CONFIG / format_tabajara_section ──────────────────────────────
+class TestTemplateConfigTabajaraSections:
+    """The template's [tabajara_*] sections are rendered from the defaults
+    dicts, so editing TABAJARA_CON_DEFAULTS / TABAJARA_DIS_DEFAULTS cannot
+    leave the generated config file advertising stale values."""
+
+    def _parsed(self):
+        parser = configparser.ConfigParser(inline_comment_prefixes=(';', '#'))
+        parser.read_string(config.render_config_template())
+        return parser
+
+    def test_con_section_matches_defaults(self):
+        assert dict(self._parsed().items('tabajara_con')) == config.TABAJARA_CON_DEFAULTS
+
+    def test_dis_section_matches_defaults(self):
+        assert dict(self._parsed().items('tabajara_dis')) == config.TABAJARA_DIS_DEFAULTS
+
+    def test_extra_default_shows_up_in_the_section(self):
+        section = config.format_tabajara_section({'m': 'c', 'zz': '7'})
+        assert section.splitlines()[-1] == 'zz = 7'
+
+    def test_known_keys_are_commented_and_ordered(self):
+        section = config.format_tabajara_section({'t': '0.5', 'm': 'c'})
+        assert section == (
+            "; Mode ('c' conservative / 'd' discriminative)\n"
+            "m = c\n"
+            "; Threshold\n"
+            "t = 0.5"
+        )
+
+    def test_single_seq_params_are_written_commented_out(self):
+        rendered = config.render_config_template()
+        for key, value in config.TABAJARA_SINGLE_SEQ_PARAMS.items():
+            assert f"\n;{key} = {value}\n" in rendered
+
+    def test_single_seq_params_stay_inactive_when_parsed(self):
+        # Listed for reference only: they must not leak into either section.
+        parsed = self._parsed()
+        for section in ('tabajara_con', 'tabajara_dis'):
+            keys = dict(parsed.items(section)).keys()
+            assert not keys & config.TABAJARA_SINGLE_SEQ_PARAMS.keys()
