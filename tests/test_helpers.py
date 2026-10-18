@@ -25,7 +25,7 @@ import urllib.error
 import pandas as pd
 import pytest
 
-from vmrplus import config, hyperlinks, markers, ncbi, paths, pipeline
+from vmrplus import annotation, config, hyperlinks, markers, ncbi, paths, pipeline
 
 vmr = types.SimpleNamespace(
     _safe_path_name=paths._safe_path_name,
@@ -416,3 +416,91 @@ class TestTemplateConfigTabajaraSections:
             items = dict(parsed.items(section)).items()
             assert config.TABAJARA_SINGLE_SEQ_PARAMS.items() <= items
 
+
+# ── vmrplus/annotation.py ──────────────────────────────────────────────────
+
+_HMM_HEADER = (
+    "HMMER3/f [3.4 | Aug 2023]\n"
+    "NAME  vHMM_61\n"
+    "LENG  33\n"
+    "STATS LOCAL FORWARD   -4.8521  0.71975\n"
+    "CUTOFF SCORE\t38.08\n"
+    "HMM          A        C\n"
+    "  COMPO   2.65995  3.53488\n"
+    "//\n"
+)
+
+_CON_FIELDS = [("TAXON", "Adamaviridae"), ("TXID", "3152106"),
+               ("PROTEIN", "Replication-associated")]
+
+
+class TestAnnotateHmmText:
+    def test_inserts_after_cutoff_score(self):
+        out = annotation.annotate_hmm_text(_HMM_HEADER, _CON_FIELDS)
+        assert ("CUTOFF SCORE\t38.08\n"
+                "TAXON   Adamaviridae\n"
+                "TXID    3152106\n"
+                "PROTEIN Replication-associated\n"
+                "HMM ") in out
+
+    def test_falls_back_to_stats_local_forward(self):
+        text = _HMM_HEADER.replace("CUTOFF SCORE\t38.08\n", "")
+        out = annotation.annotate_hmm_text(text, _CON_FIELDS)
+        assert "0.71975\nTAXON   Adamaviridae\n" in out
+
+    def test_no_anchor_returns_none(self):
+        text = "NAME  x\nHMM  A\n//\n"
+        assert annotation.annotate_hmm_text(text, _CON_FIELDS) is None
+
+    def test_rest_of_file_untouched(self):
+        out = annotation.annotate_hmm_text(_HMM_HEADER, _CON_FIELDS)
+        for tag, _ in _CON_FIELDS:
+            out = "".join(l for l in out.splitlines(True) if not l.startswith(tag))
+        assert out == _HMM_HEADER
+
+    def test_idempotent_and_updates(self):
+        once = annotation.annotate_hmm_text(_HMM_HEADER, _CON_FIELDS)
+        assert annotation.annotate_hmm_text(once, _CON_FIELDS) == once
+        changed = [("TAXON", "X"), ("GENUS", "G"), ("TXID", "1"), ("PROTEIN", "P")]
+        out = annotation.annotate_hmm_text(once, changed)
+        assert out.count("TAXON") == 1
+        assert "TAXON   X\nGENUS   G\nTXID    1\nPROTEIN P\n" in out
+
+    def test_desc_mode(self):
+        out = annotation.annotate_hmm_text(_HMM_HEADER, _CON_FIELDS, mode="desc")
+        assert ("NAME  vHMM_61\n"
+                "DESC  TAXON=Adamaviridae;TXID=3152106;PROTEIN=Replication-associated\n"
+                ) in out
+        assert annotation.annotate_hmm_text(out, _CON_FIELDS, mode="desc") == out
+
+
+class TestBuildMetadata:
+    TAXIDS = {"Adamaviridae": "3152106"}
+
+    def test_conservative_has_no_genus(self):
+        row = {"Taxon": " Adamaviridae ", "Genus": "Family-wide models",
+               "Protein": "Rep", "Model type": "conservative"}
+        tags = [t for t, _ in annotation.build_metadata(row, self.TAXIDS)]
+        assert tags == ["TAXON", "TXID", "PROTEIN"]
+
+    def test_discriminative_has_genus(self):
+        row = {"Taxon": "Adamaviridae", "Genus": "Andorivirus",
+               "Protein": "Capsid", "Model type": "discriminative"}
+        assert annotation.build_metadata(row, self.TAXIDS) == [
+            ("TAXON", "Adamaviridae"), ("GENUS", "Andorivirus"),
+            ("TXID", "3152106"), ("PROTEIN", "Capsid")]
+
+    def test_missing_taxid_returns_none(self):
+        row = {"Taxon": "Unknownviridae", "Model type": "conservative"}
+        assert annotation.build_metadata(row, self.TAXIDS) is None
+
+
+def test_library_keys_strip_model_suffix():
+    assert annotation._library_keys("vHMM_61_C") == ["vHMM_61_C", "vHMM_61"]
+    assert annotation._library_keys("vHMM_2_D") == ["vHMM_2_D", "vHMM_2"]
+
+
+def test_load_taxids_trims_and_drops_float_suffix(tmp_path):
+    terms = tmp_path / "terms.csv"
+    terms.write_text("tax_id;Name\n3152106.0; Adamaviridae \n;Emptyviridae\n")
+    assert annotation.load_taxids(terms) == {"Adamaviridae": "3152106"}

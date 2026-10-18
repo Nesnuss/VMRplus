@@ -69,6 +69,7 @@ vmrplus/         # package holding the actual implementation
   hyperlinks.py  # openpyxl hyperlink extraction/embedding for the VMR+ table
   reporting.py   # report_hmms.csv/.xlsx generation
   repository.py  # HMMs_repository/ organisation by model type (replaces hmms/)
+  annotation.py  # TAXON/GENUS/TXID/PROTEIN header fields in HMMs_repository models
   pipeline.py    # main() — orchestrates the full flow (former __main__ block)
 tests/           # pytest suite (pure helpers only, see §5)
 tools/           # characterization/comparison scripts used during the refactor
@@ -137,6 +138,16 @@ Flow (key functions, now spread across the `vmrplus` modules above):
    is the authority — the type is never re-derived from the source path. Re-running
    is idempotent. Also runnable standalone on a finished output directory:
    `python3 -m vmrplus.repository <output_dir>` (`--copy` keeps `hmms/`).
+8. **HMM annotation** — `annotate_hmms_repository()` (`vmrplus/annotation.py`) runs
+   right after step 7 and writes `TAXON` / `GENUS` (discriminative only) / `TXID` /
+   `PROTEIN` lines into each model header, right after `CUTOFF SCORE` (else
+   `STATS LOCAL FORWARD`). `TAXON`/`GENUS`/`PROTEIN` come from `hmm_library.csv`
+   (matched on `vHMM_ID` = filename stem minus `_C`/`_D`); `TXID` from the terms
+   CSV (`Taxon` == `Name` → `tax_id`). Existing fields are replaced (idempotent);
+   unmatched models are logged and skipped. The set is validated with
+   `hmmstat`/`hmmpress` (HMMER 3.4 accepts the extra tags); if rejected, it falls
+   back to `DESC  TAXON=...;GENUS=...;TXID=...;PROTEIN=...`. Standalone:
+   `python3 -m vmrplus.annotation <output_dir> <terms.csv>`.
 
 ## 4. Stack and dependencies
 

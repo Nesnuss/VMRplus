@@ -22,6 +22,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font
 
 from . import ncbi
+from .annotation import annotate_hmms_repository
 from .config import (
     TABAJARA_SINGLE_SEQ_PARAMS,
     detect_cli_config_conflict,
@@ -947,6 +948,11 @@ VMR Program version {version} - set 2026
         # conservative/ and discriminative/ and suffixed _C / _D. Guided by
         # hmm_library.csv, so it must run after the report above.
         build_hmms_repository(final_dir)
+
+        # ── Annotate the HMMs with taxonomy/protein metadata ──────────────
+        # Writes TAXON/GENUS/TXID/PROTEIN into each model header, from
+        # hmm_library.csv and the terms table (Name -> tax_id).
+        annotate_hmms_repository(final_dir, term_csv_file)
 
         final_table_csv = f'VMR+_{new_file.name}'
         table_file = os.path.join(final_dir, final_table_csv)
