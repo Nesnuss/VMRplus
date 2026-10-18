@@ -910,8 +910,10 @@ VMR Program version {version} - set 2026
                         # family-level {family}.fasta). A genus represented by a
                         # single sequence cannot yield an informative block on
                         # its own, so tabajara needs the single-sequence
-                        # parameters (-sa 1 -sr yes -mb 60) to still build a
-                        # profile HMM for it. The run itself is unchanged: same
+                        # parameters (-sa 1 -sr yes) to still build a profile
+                        # HMM for it. They are already defaults; re-applying
+                        # them here keeps them for this marker even if the
+                        # config file overrides sa/sr. The run itself is unchanged: same
                         # family MSA input (with raw-FASTA fallback), same
                         # output dirs.
                         family_fasta = marker_path / "fasta" / f"{family_path.name}.fasta"
@@ -925,7 +927,7 @@ VMR Program version {version} - set 2026
                                 f"  Single-sequence genus/genera in marker "
                                 f"'{marker_path.name}': {', '.join(single_seq_genera)}; "
                                 "applying single-sequence tabajara params "
-                                "(-sa 1 -sr yes -mb 60)"
+                                "(-sa 1 -sr yes)"
                             )
                             con_params.update(TABAJARA_SINGLE_SEQ_PARAMS)
                             dis_params.update(TABAJARA_SINGLE_SEQ_PARAMS)

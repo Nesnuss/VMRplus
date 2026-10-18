@@ -406,14 +406,13 @@ class TestTemplateConfigTabajaraSections:
             "t = 0.5"
         )
 
-    def test_single_seq_params_are_written_commented_out(self):
-        rendered = config.render_config_template()
-        for key, value in config.TABAJARA_SINGLE_SEQ_PARAMS.items():
-            assert f"\n;{key} = {value}\n" in rendered
+    def test_single_seq_params_are_part_of_the_defaults(self):
+        for defaults in (config.TABAJARA_CON_DEFAULTS, config.TABAJARA_DIS_DEFAULTS):
+            assert config.TABAJARA_SINGLE_SEQ_PARAMS.items() <= defaults.items()
 
-    def test_single_seq_params_stay_inactive_when_parsed(self):
-        # Listed for reference only: they must not leak into either section.
+    def test_single_seq_params_are_active_in_both_sections(self):
         parsed = self._parsed()
         for section in ('tabajara_con', 'tabajara_dis'):
-            keys = dict(parsed.items(section)).keys()
-            assert not keys & config.TABAJARA_SINGLE_SEQ_PARAMS.keys()
+            items = dict(parsed.items(section)).items()
+            assert config.TABAJARA_SINGLE_SEQ_PARAMS.items() <= items
+

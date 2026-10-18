@@ -52,6 +52,11 @@ TABAJARA_CON_DEFAULTS = {
     'b': '20',
     'cs': 'yes',
     'm': 'c',
+    'sa': '1',
+    'sr': 'yes',
+    'mb': '60',
+    'gs': '20',
+    'md': '3',
 }
 
 TABAJARA_DIS_DEFAULTS = {
@@ -61,18 +66,24 @@ TABAJARA_DIS_DEFAULTS = {
     'b': '20',
     'cs': 'yes',
     'm': 'd',
+    'sa': '1',
+    'sr': 'yes',
+    'mb': '60',
+    'gs': '20',
+    'md': '3',
 }
 
-# Extra tabajara.pl parameters applied (in both conservative and
-# discriminative modes) to a marker whose FASTA holds a single sequence, so
-# tabajara can still build a profile HMM from that lone sequence.
+# tabajara.pl parameters forced (in both conservative and discriminative modes)
+# on a marker that has a genus FASTA holding a single sequence, so tabajara can
+# still build a profile HMM from that lone sequence. They are already part of
+# the defaults above; re-applying them guarantees that a lone-sequence marker
+# keeps them even when the config file overrides 'sa' / 'sr' for normal runs.
 # Note: -mb is the MAXIMUM block size; it must stay above the pipeline's
 # minimum block size (-b, default 20) or tabajara selects 0 blocks and builds
 # no HMM. -mb 60 leaves room for a block to be selected.
 TABAJARA_SINGLE_SEQ_PARAMS = {
     'sa': '1',
     'sr': 'yes',
-    'mb': '60',
 }
 
 # Human-readable description of each tabajara parameter, used to comment the
@@ -85,14 +96,16 @@ TABAJARA_PARAM_DESCRIPTIONS = {
     'w': 'Window size',
     'b': 'Block size (minimum)',
     'cs': 'Conserved sites (yes/no)',
-    'sa': 'Sequence alignment flag',
-    'sr': 'Single-sequence run (yes/no)',
+    'sa': 'Sequence_amount: minimum # of non-redundant sequences to build an HMM (tabajara default 2)',
+    'sr': 'Search_more_regions: search more subregions in a selected region (yes/no)',
     'mb': 'Maximum block size',
+    'gs': 'Gap_sequence <decimal>',
+    'md': 'Maximum_distance <integer>',
 }
 
 # Order in which the parameters are written to the config template; any key not
 # listed here is appended afterwards, in the defaults dict's own order.
-TABAJARA_PARAM_ORDER = ('m', 't', 'p', 'w', 'b', 'cs', 'sa', 'sr', 'mb')
+TABAJARA_PARAM_ORDER = ('m', 't', 'p', 'w', 'b', 'cs', 'sa', 'sr', 'mb','gs','md')
 
 
 def format_tabajara_section(params, commented=False):
@@ -162,14 +175,10 @@ gb = no
 ;
 {con_params}
 ;
-; Single-sequence parameters. The program applies these AUTOMATICALLY (in both
-; the conservative and the discriminative run) to a marker whose genus FASTA
-; holds a single sequence, so tabajara can still build a profile HMM from that
-; lone sequence. They are listed here for reference; uncomment them only to
-; force the same behaviour on every run.
 ; Note: 'mb' is the MAXIMUM block size and must stay above the minimum block
 ; size 'b' above, or tabajara selects 0 blocks and builds no HMM.
-{single_seq_params}
+; 'sa' / 'sr' may be changed here, but a marker whose genus FASTA holds a
+; single sequence is always run with {single_seq_inline}.
 
 
 [tabajara_dis]
@@ -181,14 +190,10 @@ gb = no
 ;
 {dis_params}
 ;
-; Single-sequence parameters. The program applies these AUTOMATICALLY (in both
-; the conservative and the discriminative run) to a marker whose genus FASTA
-; holds a single sequence, so tabajara can still build a profile HMM from that
-; lone sequence. They are listed here for reference; uncomment them only to
-; force the same behaviour on every run.
 ; Note: 'mb' is the MAXIMUM block size and must stay above the minimum block
 ; size 'b' above, or tabajara selects 0 blocks and builds no HMM.
-{single_seq_params}
+; 'sa' / 'sr' may be changed here, but a marker whose genus FASTA holds a
+; single sequence is always run with {single_seq_inline}.
 """
 
 
@@ -199,8 +204,8 @@ def render_config_template():
         version=version,
         con_params=format_tabajara_section(TABAJARA_CON_DEFAULTS),
         dis_params=format_tabajara_section(TABAJARA_DIS_DEFAULTS),
-        single_seq_params=format_tabajara_section(TABAJARA_SINGLE_SEQ_PARAMS,
-                                                  commented=True),
+        single_seq_inline=' '.join(f'{k}={v}'
+                                   for k, v in TABAJARA_SINGLE_SEQ_PARAMS.items()),
     )
 
 

@@ -49,8 +49,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Stockholm format (`.sto`)** — annotated MSA format used by HMMER. **Not generated
   directly here** (MAFFT emits aligned FASTA; `tabajara.pl` bridges to `hmmbuild`).
 - **tabajara.pl** — external Perl tool that, from the MSA, selects blocks and calls
-  `hmmbuild`. Modes: `-m c` (conservative) and `-m d` (discriminative). Single-sequence
-  markers additionally get `-sa 1 -sr yes -mb 60` so an HMM can still be built.
+  `hmmbuild`. Modes: `-m c` (conservative) and `-m d` (discriminative). `-sa 1 -sr yes`
+  (`sequence_amount` / `search_more_regions`) are part of the defaults, and are
+  re-forced on single-sequence markers so an HMM can still be built.
 
 ## 3. Architecture and directory structure
 
@@ -115,9 +116,11 @@ Flow (key functions, now spread across the `vmrplus` modules above):
    `run_tabajara_con()`/`run_tabajara_dis()` (`vmrplus/external.py`). If **any
    genus-level FASTA** in the marker's `fasta/` directory (every `*.fasta` except the
    family-level `{family}.fasta`) holds a **single sequence** (`count_fasta_sequences()`
-   in `vmrplus/markers.py`), the family run gets the extra tabajara params
-   `-sa 1 -sr yes -mb 60` (`TABAJARA_SINGLE_SEQ_PARAMS`, applied in both con and dis
-   modes) so an HMM can still be built for that lone-sequence genus. The run is
+   in `vmrplus/markers.py`), the family run is forced to `-sa 1 -sr yes`
+   (`TABAJARA_SINGLE_SEQ_PARAMS`, applied in both con and dis modes) so an HMM can
+   still be built for that lone-sequence genus. These values are already the
+   defaults; the re-application only matters when the config `.ini` overrides
+   `sa`/`sr`, which then applies to every other marker. The run is
    otherwise unchanged — same family MSA input (with raw-FASTA fallback), same output
    dirs. If MAFFT produced **no usable MSA** for a
    marker (`{family}_aligned.fasta` missing or empty), tabajara falls back to the raw
@@ -215,7 +218,13 @@ python3 VMRplus.py -v        # version
 - **Safe paths** via `_safe_path_name()` / `_shorten_accession_filename()`; counter prefix
   `VMR<7 digits>`.
 - **Tabajara parameters** go through a generated `tabajara.conf` (`write_tabajara_conf`), never
-  directly on the command line; defaults in `TABAJARA_CON_DEFAULTS` / `TABAJARA_DIS_DEFAULTS`.
+  directly on the command line; defaults in `TABAJARA_CON_DEFAULTS` / `TABAJARA_DIS_DEFAULTS`
+  (`vmrplus/config.py`), identical in both modes except `m`:
+  `t=0.5 p=50 w=15 b=20 cs=yes sa=1 sr=yes mb=60 gs=20 md=3` (`m=c` / `m=d`). `mb` (maximum block
+  size) must stay above `b` (minimum block size) or tabajara selects 0 blocks and
+  builds no HMM. `sa` = minimum # of non-redundant sequences per block (tabajara's
+  own default is 2), `sr` = search more subregions; single-sequence markers are
+  always forced back to `sa=1 sr=yes` even if the `.ini` overrides them.
 - **Config `.ini`** — sections `[general]`, `[tabajara_con]`, `[tabajara_dis]`; unknown keys
   in `[general]` warn and are discarded; in `[tabajara_*]` they are forwarded
   verbatim to `tabajara.pl` via `build_tabajara_args()`.
