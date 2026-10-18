@@ -25,7 +25,7 @@ import urllib.error
 import pandas as pd
 import pytest
 
-from vmrplus import annotation, config, hyperlinks, markers, ncbi, paths, pipeline
+from vmrplus import annotation, config, hyperlinks, markers, ncbi, paths, pipeline, segments
 
 vmr = types.SimpleNamespace(
     _safe_path_name=paths._safe_path_name,
@@ -279,48 +279,118 @@ class TestResolveGenomeTaxon:
         assert ncbi.resolve_genome_taxon(row) == "Caudoviricetes"
 
 
-# ── _genome_header_tag ─────────────────────────────────────────────────────
-class TestGenomeHeaderTag:
-    """The tag prepended to every '-gb yes' genome header: the resolved taxon
-    paired with the genus, so the saved sequence id carries its taxonomy."""
+# ── segments.py (seg_library.csv, -gb headers) ───────────────────────────
+WALLAL_CELL = ("Seg1: KF234259; Seg2: KF234260; Seg3: KF234261; Seg4: KF234262; "
+               "Seg5: KF234263; Seg6: KF234264; Seg7: KF234265; Seg8: KF234266; "
+               "Seg9: KF234267; Seg10: KF234268")
 
-    NAN = float("nan")
 
-    def test_family_and_genus(self):
-        assert ncbi._genome_header_tag(
-            "Ackermannviridae", "Agtrevirus") == "Ackermannviridae_Agtrevirus"
+class TestParseAccessionField:
+    def test_labelled_segments(self):
+        pairs = segments.parse_accession_field(WALLAL_CELL)
+        assert pairs[0] == ("Seg1", "KF234259")
+        assert pairs[-1] == ("Seg10", "KF234268")
+        assert len(pairs) == 10
 
-    def test_resolved_upper_rank_replaces_unclassified(self):
-        # A row with no family is tagged with the rank it does carry.
-        assert ncbi._genome_header_tag(
-            "Caudoviricetes", "Actaeavirus") == "Caudoviricetes_Actaeavirus"
+    def test_single_code_is_seg1(self):
+        assert segments.parse_accession_field("PP467602") == [("Seg1", "PP467602")]
 
-    def test_genus_only_row_is_not_repeated(self):
-        # resolve_genome_taxon() fell back to the genus itself.
-        assert ncbi._genome_header_tag(
-            "Actaeavirus", "Actaeavirus") == "Actaeavirus"
+    def test_unlabelled_list_uses_position(self):
+        assert segments.parse_accession_field("KT732816; KT732815; KT732817") == [
+            ("Seg1", "KT732816"), ("Seg2", "KT732815"), ("Seg3", "KT732817")]
 
-    def test_missing_genus_falls_back(self):
-        assert ncbi._genome_header_tag(
-            "Ackermannviridae", self.NAN) == "Ackermannviridae_unclassified"
+    def test_mixed_labels_use_position_for_the_unlabelled(self):
+        assert segments.parse_accession_field("A: EU623082; EU623083; EU623084") == [
+            ("A", "EU623082"), ("Seg2", "EU623083"), ("Seg3", "EU623084")]
 
-    def test_unresolved_taxon_with_a_genus(self):
-        assert ncbi._genome_header_tag(
-            "unclassified", "Actaeavirus") == "unclassified_Actaeavirus"
+    def test_label_formats(self):
+        assert segments.parse_accession_field(
+            "L: OR365538 ; M: OR365537; RNA3:BK064252; DNA-S.1: MF926436") == [
+            ("L", "OR365538"), ("M", "OR365537"), ("RNA3", "BK064252"),
+            ("DNA-S.1", "MF926436")]
 
-    def test_nothing_at_all_yields_no_prefix(self):
-        assert ncbi._genome_header_tag(self.NAN, self.NAN) == ""
-        assert ncbi._genome_header_tag("unclassified", self.NAN) == ""
+    def test_labels_are_not_taken_for_accessions(self):
+        # 'dsRNA1' looks like an accession (letters + digits, 6 chars).
+        assert segments.parse_accession_field("dsRNA1: LC350277") == [
+            ("dsRNA1", "LC350277")]
 
-    def test_literal_nan_string_is_not_a_name(self):
-        # The .xlsx -> CSV -> DataFrame round-trip can surface 'nan' as text.
-        assert ncbi._genome_header_tag(
-            "nan", "Actaeavirus") == "unclassified_Actaeavirus"
+    def test_coordinates_and_trailing_dot_are_dropped(self):
+        assert segments.parse_accession_field("AE006468 (2844298.2877981)") == [
+            ("Seg1", "AE006468")]
+        assert segments.parse_accession_field("PP173676.") == [("Seg1", "PP173676")]
 
-    def test_whitespace_is_collapsed(self):
-        # A space would truncate the FASTA id at the tag.
-        assert ncbi._genome_header_tag(
-            "Some Family", "Some Genus") == "Some_Family_Some_Genus"
+    def test_empty_cell(self):
+        assert segments.parse_accession_field(float("nan")) == []
+        assert segments.parse_accession_field("") == []
+
+
+def _wallal_table():
+    return pd.DataFrame([
+        {"Family": None, "Subfamily": None, "Class": "Caudoviricetes",
+         "Genus": "Actaeavirus", "Species": "Actaeavirus x",
+         "Virus GENBANK accession": "OR420743"},
+        {"Family": "Sedoreoviridae", "Subfamily": None, "Genus": "Orbivirus",
+         "Species": "Orbivirus betamitchellense",
+         "Virus GENBANK accession": WALLAL_CELL},
+        {"Family": None, "Subfamily": "Weiservirinae", "Genus": "Unicornvirus",
+         "Species": "Unicornvirus y", "Virus GENBANK accession": None},
+    ])
+
+
+class TestBuildSegLibrary:
+    def test_one_row_per_code_sharing_the_sample_id(self):
+        entries = segments.build_seg_library(_wallal_table())
+        wallal = [e for e in entries if e["vSeg_ID"] == "vSeg2"]
+        assert len(wallal) == 10
+        assert wallal[0] == {
+            "n": 2, "vSeg_ID": "vSeg2", "Segment": "Seg1", "Family": "Sedoreoviridae",
+            "Genus": "Orbivirus", "Species": "Orbivirus betamitchellense",
+            "GenBank": "KF234259"}
+
+    def test_family_falls_back_to_nearest_rank(self):
+        entries = segments.build_seg_library(_wallal_table())
+        assert entries[0]["Family"] == "Caudoviricetes"
+        assert entries[0]["Segment"] == "Seg1"
+
+    def test_rows_without_codes_add_no_lines(self):
+        entries = segments.build_seg_library(_wallal_table())
+        assert {e["vSeg_ID"] for e in entries} == {"vSeg1", "vSeg2"}
+
+
+class TestSegHeaders:
+    ENTRY = {"vSeg_ID": "vSeg1", "Segment": "Seg1", "Family": "Sedoreoviridae",
+             "Genus": "Orbivirus", "GenBank": "KF234259"}
+    TITLE = "KF234259.1 Wallal virus isolate 927 segment 1, complete sequence"
+    EXPECTED = ("Sedoreoviridae_Orbivirus_vSeg1_Seg1_KF234259.1 "
+                "Wallal virus isolate 927 segment 1, complete sequence")
+
+    def test_header_keeps_version_and_description(self):
+        _, description = segments.seg_header(self.ENTRY, "KF234259.1", self.TITLE)
+        assert description == self.EXPECTED
+
+    def test_names_with_spaces_are_underscored(self):
+        entry = dict(self.ENTRY, Family="Some Family", Genus="Some Genus")
+        new_id, _ = segments.seg_header(entry, "KF234259.1", self.TITLE)
+        assert new_id == "Some_Family_Some_Genus_vSeg1_Seg1_KF234259.1"
+
+    def test_rewrite_is_idempotent_and_upgrades_old_headers(self, tmp_path):
+        lookup = {"KF234259": self.ENTRY}
+        fasta = tmp_path / "VMR0000001_KF234259.fasta"
+        fasta.write_text(f">Sedoreoviridae_Orbivirus_{self.TITLE}\nACGT\nAC\n")
+        matched, unmatched = segments.rewrite_fasta_headers(fasta, lookup)
+        assert matched == {"KF234259"} and unmatched == []
+        once = fasta.read_text()
+        assert once == f">{self.EXPECTED}\nACGT\nAC\n"
+        segments.rewrite_fasta_headers(fasta, lookup)
+        assert fasta.read_text() == once
+
+    def test_unknown_record_is_left_alone(self, tmp_path):
+        fasta = tmp_path / "x.fasta"
+        fasta.write_text(">ZZ999999.1 other\nACGT\n")
+        matched, unmatched = segments.rewrite_fasta_headers(
+            fasta, {"KF234259": self.ENTRY})
+        assert matched == set() and unmatched == ["ZZ999999.1"]
+        assert fasta.read_text() == ">ZZ999999.1 other\nACGT\n"
 
 
 # ── excel_hyperlink_formula ────────────────────────────────────────────────

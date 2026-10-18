@@ -70,6 +70,7 @@ vmrplus/         # package holding the actual implementation
   reporting.py   # report_hmms.csv/.xlsx generation
   repository.py  # HMMs_repository/ organisation by model type (replaces hmms/)
   annotation.py  # TAXON/GENUS/TXID/PROTEIN header fields in HMMs_repository models
+  segments.py    # -gb: seg_library.csv + genome FASTA header naming
   pipeline.py    # main() — orchestrates the full flow (former __main__ block)
 tests/           # pytest suite (pure helpers only, see §5)
 tools/           # characterization/comparison scripts used during the refactor
@@ -83,20 +84,31 @@ auto-suffixed by `unique_dir()`, containing `VMR.log`, `refdb/`, `markers/`,
 subtrees, `report_hmms.csv/.xlsx`, and `VMR+_<input>.xlsx`. When `-gb yes`
 downloads the full genomes, files are written to
 `genome_data/<taxon>/`, where `<taxon>` is the **nearest taxonomic level the
-VMR record actually carries** — `resolve_genome_taxon()` in `vmrplus/ncbi.py`
+VMR record actually carries** — `resolve_genome_taxon()` in `vmrplus/segments.py`
+(re-exported by `ncbi.py`)
 tries `GENOME_TAXON_RANKS` in order: Family → Subfamily → the ranks *above*
 (Suborder → Order → Subclass → Class → Subphylum → Phylum → Subkingdom →
 Kingdom → Subrealm → Realm) → then Genus → Subgenus → Species. A record with
 no Family but a Class of Caudoviricetes therefore lands in
 `genome_data/Caudoviricetes/` rather than a catch-all directory; only a row
-with **every** rank empty falls back to `unclassified/`. Each saved FASTA
-header is prefixed with the same taxonomy —
-`<taxon>_<genus>_<accession> ...` (e.g. `>Ackermannviridae_Agtrevirus_FJ373894.1 ...`,
-`>Caudoviricetes_Actaeavirus_OR420743.1 ...`). The genus part falls back to
-`unclassified` when the Genus field is empty; when the resolved taxon *is* the
-genus the name is not repeated (`>Actaeavirus_OR420743.1 ...`), and the prefix
-is omitted entirely only when there is no taxonomy at all. Whitespace in names
-is collapsed to `_` (`_genome_header_tag()` in `vmrplus/ncbi.py`).
+with **every** rank empty falls back to `unclassified/`.
+
+`-gb yes` also writes **`seg_library.csv`** (`vmrplus/segments.py`) — one row
+per GenBank code: `vSeg_ID;Segment;Family;Genus;Species;GenBank`. `vSeg<n>` is
+the sample id, sharing the 1-based row counter of the `VMR<n:07d>_*.fasta`
+file (Wallal virus = `vSeg9828` ↔ `VMR0009828_...`). `parse_accession_field()`
+splits the `Virus GENBANK accession` cell on `;`; `Label: ACC` keeps the label
+(`Seg1`, `L`, `DNA-A`, `dsRNA1`), an unlabelled code becomes `Seg<position>`
+(a single code is `Seg1`). Family = `resolve_genome_taxon()` (Family →
+Subfamily → nearest rank); Genus falls back to `unclassified`. Each saved
+FASTA header is `<Family>_<Genus>_vSeg<n>_<Segment>_<Accession.version> <original description>`
+(e.g. `>Sedoreoviridae_Orbivirus_vSeg9828_Seg1_KF234259.1 Wallal virus isolate 927 segment 1, complete sequence`),
+matched by accession ignoring the version; whitespace in names → `_`. Files
+already on disk are not re-downloaded but their headers are rewritten
+(idempotent, also upgrades the older `<taxon>_<genus>_<acc>` prefix). Codes not
+downloaded / records with no table row are warned in `VMR.log`, which ends with
+a segment summary (samples, segments, failed codes). Standalone, no network:
+`python3 -m vmrplus.segments <output_dir> <VMR.csv>`.
 
 Note this fallback applies to the **genome dataset only**. The marker/refdb
 side of the pipeline still uses the plain Family → Subfamily → `unclassified`
@@ -214,7 +226,7 @@ python3 VMRplus.py -v        # version
   `Positive_terms`, `Negative_terms`, `min_length`, `max_length`, `Parent`.
 - **Intermediates** — `;`-delimited CSV; protein FASTA per refdb/marker; BLAST
   databases (`makeblastdb`); aligned FASTA (MAFFT); generated `tabajara.conf`.
-- **Outputs** — `.hmm` under `tabajara_family/.../valid_HMMs` and `tabajara_genera/<genus>/...`;
+- **Outputs** — `seg_library.csv` + `genome_data/` (only with `-gb yes`, see §3); `.hmm` under `tabajara_family/.../valid_HMMs` and `tabajara_genera/<genus>/...`;
   `report_hmms.csv/.xlsx` (columns `Family;Genus;Marker;#sequences;#profile HMMs`);
   `hmm_library.csv/.xlsx` (traceability: `vHMM_ID;Taxon;Genus;Protein;Model type;...`);
   `HMMs_repository/{conservative,discriminative}/` holding the collected models

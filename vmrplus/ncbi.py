@@ -19,6 +19,20 @@ import pandas as pd
 from Bio import Entrez, SeqIO
 
 from .paths import _safe_path_name, _shorten_accession_filename
+from .segments import (  # noqa: F401 -- re-exported for callers/tests
+    GENOME_TAXON_RANKS,
+    UNCLASSIFIED,
+    _is_filled,
+    _normalize_accession,
+    build_seg_library,
+    entries_by_row,
+    format_summary,
+    log_unmatched,
+    rename_records,
+    resolve_genome_taxon,
+    rewrite_fasta_headers,
+    write_seg_library,
+)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Retry policy
@@ -409,108 +423,13 @@ def refdb(name_protein, taxid, name_family, path, protein_name, min_len, max_len
 # Whole-genome download  (-gb yes)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _is_filled(value):
-    """True when a VMR cell actually carries a name (not NaN/empty/'nan')."""
-    return (isinstance(value, str)
-            and value.strip()
-            and value.strip().lower() != 'nan')
-
-
-# VMR/MSL taxonomy columns tried, in order, to name the taxon a genome is
-# filed under. Family and Subfamily come first (the historical behaviour);
-# when the record carries neither, the search walks UP the hierarchy so the
-# genome is still grouped with its relatives -- a record with no family but a
-# Class of Caudoviricetes is filed under 'Caudoviricetes' rather than being
-# dumped into 'unclassified'. Genus and below are the last resort, for the
-# rows whose only filled rank sits below the family level.
-GENOME_TAXON_RANKS = (
-    'Family', 'Subfamily',
-    'Suborder', 'Order', 'Subclass', 'Class', 'Subphylum', 'Phylum',
-    'Subkingdom', 'Kingdom', 'Subrealm', 'Realm',
-    'Genus', 'Subgenus', 'Species',
-)
-
-# Used only when a row has no filled rank at all.
-UNCLASSIFIED = 'unclassified'
-
-
-def resolve_genome_taxon(row):
-    """
-    Pick the taxon name a VMR/MSL row's genome is filed under.
-
-    Returns the value of the first filled column of GENOME_TAXON_RANKS, i.e.
-    the nearest taxonomic level the record actually carries, or the literal
-    'unclassified' when every rank is empty.
-
-    *row* is anything with a ``.get(column, default)`` -- a pandas Series or
-    a plain dict.
-    """
-    for rank in GENOME_TAXON_RANKS:
-        value = row.get(rank, "")
-        if _is_filled(value):
-            return value.strip()
-    return UNCLASSIFIED
-
-
-def _genome_header_tag(taxon, genus):
-    """
-    Build the taxonomic prefix prepended to each genome FASTA header.
-
-    The prefix is '<taxon>_<genus>', where:
-
-      * the taxon part is the name resolved by resolve_genome_taxon() -- the
-        Family, or the nearest rank the record does carry.
-      * the genus part is the Genus, falling back to the literal
-        'unclassified' when the Genus field is empty/missing.
-
-    When the resolved taxon IS the genus (the row's only filled rank), the
-    name is not repeated and the prefix is just '<genus>'.
-
-    When neither is available there is nothing to say, so no prefix is added
-    at all (returns '').
-
-    Whitespace inside any name is collapsed to '_' so the resulting tag
-    cannot truncate a FASTA sequence identifier.
-    """
-    has_taxon = _is_filled(taxon) and taxon.strip() != UNCLASSIFIED
-    has_genus = _is_filled(genus)
-
-    if not has_taxon and not has_genus:
-        return ""
-
-    tax_part = taxon.strip() if has_taxon else UNCLASSIFIED
-    gen_part = genus.strip() if has_genus else UNCLASSIFIED
-
-    tax_part = "_".join(tax_part.split())
-    gen_part = "_".join(gen_part.split())
-
-    if tax_part == gen_part:
-        return tax_part
-    return f"{tax_part}_{gen_part}"
-
-
-def _normalize_accession(token):
-    """
-    Clean one accession token taken from 'Virus GENBANK accession'.
-
-    Strips stray punctuation the spreadsheet sometimes carries. The VMR cell
-    for VMR0013777 is literally ``'PP173676.'`` -- with a trailing period --
-    and NCBI rejects that outright, answering HTTP 200 with the body
-    ``Error: Failed to understand id: PP173676.`` rather than an error status.
-    The genome was therefore never downloaded even though the accession is
-    valid; ``PP173676`` fetches fine.
-
-    A genuine version suffix is preserved: ``MK861116.1`` is untouched
-    because its dot is followed by digits.
-    """
-    token = token.strip().strip('"\'')
-    while token and token[-1] in '.,;:-_':
-        token = token[:-1]
-    return token.lstrip('.,;:-_')
+# _is_filled, GENOME_TAXON_RANKS, UNCLASSIFIED, resolve_genome_taxon and
+# _normalize_accession live in segments.py (imported above), next to the
+# accession parsing that drives seg_library.csv.
 
 
 def download_genome_fasta(seq_number, genome_code, taxon, genome_data_dir,
-                          taxon_tag=""):
+                          seg_lookup=None):
     """
     Downloads the complete nucleotide genome (FASTA) of ONE VMR/MSL
     individual and saves it under genome_data/<taxon>/, where *taxon* is the
@@ -525,14 +444,15 @@ def download_genome_fasta(seq_number, genome_code, taxon, genome_data_dir,
     where the accession part joins every accession found in the
     'Virus GENBANK accession' field (version suffixes removed) with '-'.
 
-    Every FASTA header is prefixed with *taxon_tag* (e.g.
-    'Ackermannviridae_Agtrevirus', 'Weiservirinae_Unicornvirus' or
-    'Caudoviricetes_Actaeavirus') when non-empty, so the saved sequence ids
-    carry their taxonomy. An empty tag leaves the headers untouched.
+    *seg_lookup* is this row's ``{accession: seg_library entry}`` (see
+    segments.py): it lists the codes to fetch and names every FASTA header
+    ``<Family>_<Genus>_vSeg<n>_<Segment>_<Accession.version> <description>``.
 
-    Existing files are left untouched (allows resuming). Returns the output
-    path on success, or None on skip/failure.
+    Existing files are not downloaded again (allows resuming), but their
+    headers are rewritten from *seg_lookup*. Returns ``(output_path,
+    saved_accessions)`` on success, or ``(None, set())`` on skip/failure.
     """
+    seg_lookup = seg_lookup or {}
     prefix = f"VMR{seq_number:07d}"
 
     tax = taxon.strip() if _is_filled(taxon) else UNCLASSIFIED
@@ -545,29 +465,25 @@ def download_genome_fasta(seq_number, genome_code, taxon, genome_data_dir,
             or not str(genome_code).strip()
             or str(genome_code).strip().lower() == 'nan'):
         logging.warning(f"[genome] {prefix}: empty/invalid accession; skipped.")
-        return None
+        return None, set()
 
-    # Extract accession IDs (same parsing used by search_entrez; handles the
-    # segmented ';'/':' syntax, e.g. 'L: MK861116; M: MK861117').
-    raw = str(genome_code)
-    acc_ids = [
-        acc for acc in (
-            _normalize_accession(tok)
-            for tok in raw.replace(";", " ").replace(":", " ").split()
-        )
-        if len(acc) >= 6 and any(c.isalpha() for c in acc) and any(c.isdigit() for c in acc)
-    ]
+    # Accession IDs, as split by parse_accession_field() (segments.py): the
+    # segment labels ('L:', 'dsRNA1:') are dropped rather than sent to NCBI.
+    acc_ids = [entry["GenBank"] for entry in seg_lookup.values()]
     if not acc_ids:
         logging.warning(f"[genome] {prefix}: no valid accession in '{genome_code}'; skipped.")
-        return None
+        return None, set()
 
     # Filename accession part: strip version suffix (.1) and join with '-'
     name_accs = _shorten_accession_filename("-".join(a.split('.')[0] for a in acc_ids))
     output_file = os.path.join(fam_dir, f"{prefix}_{name_accs}.fasta")
 
     if os.path.exists(output_file):
-        logging.info(f"[genome] {os.path.basename(output_file)} already exists; skipped.")
-        return output_file
+        logging.info(f"[genome] {os.path.basename(output_file)} already exists; "
+                     f"not downloaded again, headers refreshed.")
+        saved, unmatched = rewrite_fasta_headers(output_file, seg_lookup)
+        log_unmatched(prefix, unmatched, seg_lookup, saved)
+        return output_file, saved
 
     attempts = GENOME_DOWNLOAD_ATTEMPTS
 
@@ -604,25 +520,19 @@ def download_genome_fasta(seq_number, genome_code, taxon, genome_data_dir,
                         f"not retrying. Check the 'Virus GENBANK accession' cell "
                         f"in the VMR table."
                     )
-                    return None
+                    return None, set()
                 time.sleep(_retry_delay(attempt))
                 continue
 
-            # Prefix each header with the family/genus tag (if any). The
-            # description already begins with the id, so prefixing both keeps
-            # the FASTA title consistent (Biopython writes the description).
-            if taxon_tag:
-                for rec in records:
-                    rec.description = (
-                        f"{taxon_tag}_{rec.description}"
-                        if rec.description else f"{taxon_tag}_{rec.id}"
-                    )
-                    rec.id = f"{taxon_tag}_{rec.id}"
+            # Family_Genus_vSegN_Segment_Accession.version <description>,
+            # matched to seg_library.csv by accession (version ignored).
+            saved, unmatched = rename_records(records, seg_lookup)
+            log_unmatched(prefix, unmatched, seg_lookup, saved)
 
             with open(output_file, "w") as out:
                 SeqIO.write(records, out, "fasta")
             logging.info(f"[genome] Saved {os.path.basename(output_file)} ({len(records)} sequence(s)).")
-            return output_file
+            return output_file, saved
 
         except (socket.timeout,
                 http.client.IncompleteRead,
@@ -639,7 +549,7 @@ def download_genome_fasta(seq_number, genome_code, taxon, genome_data_dir,
                     f"[genome] Failed to download {prefix} ({acc_ids}): {e}. "
                     f"Not retryable; giving up."
                 )
-                return None
+                return None, set()
 
             logging.warning(
                 f"[genome] Error downloading {prefix} ({acc_ids}): {e}. "
@@ -649,7 +559,7 @@ def download_genome_fasta(seq_number, genome_code, taxon, genome_data_dir,
                 time.sleep(_retry_delay(attempt))
 
     logging.error(f"[genome] Failed to download {prefix} ({acc_ids}) after {attempts} attempts.")
-    return None
+    return None, set()
 
 
 def download_all_genomes(tableX, final_dir, num_threads):
@@ -663,6 +573,10 @@ def download_all_genomes(tableX, final_dir, num_threads):
     (Suborder … Realm) → Genus and below, and only 'unclassified' for a row
     with no taxonomy at all.
 
+    Before downloading, writes seg_library.csv (one row per GenBank code,
+    sample id vSeg<counter>) and uses it to name every FASTA header -- see
+    segments.py.
+
     Runs in parallel when num_threads is set (reusing the -thr pool and the
     NCBI rate limiter), otherwise sequentially.
     """
@@ -670,11 +584,14 @@ def download_all_genomes(tableX, final_dir, num_threads):
     os.makedirs(genome_data_dir, exist_ok=True)
     logging.info(f"[genome] Downloading viral genomes into {genome_data_dir} ...")
 
+    seg_entries = build_seg_library(tableX)
+    write_seg_library(seg_entries, final_dir)
+    seg_by_row = entries_by_row(seg_entries)
+
     tasks = []
     for i in range(len(tableX)):
         row         = tableX.iloc[i]
         genome_code = row.get("Virus GENBANK accession", "")
-        genus       = row.get("Genus", "")
 
         # Directory: the nearest taxonomic level the row carries. Records
         # without a Family are grouped by their Subfamily, else by the
@@ -682,30 +599,31 @@ def download_all_genomes(tableX, final_dir, num_threads):
         # only a row with no taxonomy at all lands in 'unclassified/'.
         tax = resolve_genome_taxon(row)
 
-        # Header prefix: the same taxon, paired with the genus.
-        tag = _genome_header_tag(tax, genus)
-
-        tasks.append((i + 1, genome_code, tax, tag))   # 1-based counter
+        n = i + 1                                      # 1-based counter
+        tasks.append((n, genome_code, tax, seg_by_row.get(n, {})))
 
     failed = []
+    saved_by_row = {}
 
     if num_threads is not None:
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = {
-                executor.submit(download_genome_fasta, n, gc, tax, genome_data_dir, tag): (n, gc)
-                for (n, gc, tax, tag) in tasks
+                executor.submit(download_genome_fasta, n, gc, tax, genome_data_dir, seg): (n, gc)
+                for (n, gc, tax, seg) in tasks
             }
             for fut in as_completed(futures):
                 n, gc = futures[fut]
                 try:
-                    if fut.result() is None:
+                    path, saved_by_row[n] = fut.result()
+                    if path is None:
                         failed.append((n, gc))
                 except Exception as e:
                     logging.error(f"[genome] VMR{n:07d} ({gc}) raised: {e}", exc_info=True)
                     failed.append((n, gc))
     else:
-        for (n, gc, tax, tag) in tasks:
-            if download_genome_fasta(n, gc, tax, genome_data_dir, tag) is None:
+        for (n, gc, tax, seg) in tasks:
+            path, saved_by_row[n] = download_genome_fasta(n, gc, tax, genome_data_dir, seg)
+            if path is None:
                 failed.append((n, gc))
 
     logging.info(f"[genome] Genome download step finished ({len(tasks)} individual(s) processed).")
@@ -727,6 +645,11 @@ def download_all_genomes(tableX, final_dir, num_threads):
             )
             reason = "no accession in the VMR row" if no_accession else "download failed"
             logging.warning(f"[genome]   missing VMR{n:07d}: {gc!r} ({reason})")
+
+    samples = sum(1 for saved in saved_by_row.values() if saved)
+    segments = sum(len(saved) for saved in saved_by_row.values())
+    for line in format_summary(samples, segments, len(seg_entries) - segments).splitlines():
+        logging.info(f"[genome] {line}")
 
 
 #Executes the commands of the blast_plus function.
