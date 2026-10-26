@@ -7,7 +7,7 @@ import configparser
 import os
 import sys
 
-version = "1.7.18"
+version = "1.7.19"
 
 help_text = """
 VMR Program version """+version+""" -  set 2026
