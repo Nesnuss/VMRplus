@@ -34,6 +34,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pandas as pd
+
 SEG_LIBRARY_NAME = "seg_library.csv"
 SEG_COLUMNS = ("vSeg_ID", "Segment", "Family", "Genus", "Species", "GenBank")
 
@@ -190,14 +192,20 @@ def entries_by_row(entries):
 
 
 def write_seg_library(entries, output_dir):
-    """Write ``seg_library.csv`` (';'-delimited) and return its path."""
+    """
+    Write ``seg_library.csv`` (';'-delimited) and its ``seg_library.xlsx``
+    twin, like hmm_library.csv/.xlsx. Returns the CSV path.
+    """
     path = Path(output_dir) / SEG_LIBRARY_NAME
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=SEG_COLUMNS, delimiter=';',
                                 extrasaction='ignore')
         writer.writeheader()
         writer.writerows(entries)
-    logging.info(f"[segments] Wrote {path.name} ({len(entries)} code(s)).")
+
+    xlsx_path = path.with_suffix(".xlsx")
+    pd.DataFrame(entries, columns=SEG_COLUMNS).to_excel(xlsx_path, index=False)
+    logging.info(f"[segments] Wrote {path.name} / {xlsx_path.name} ({len(entries)} code(s)).")
     return path
 
 
@@ -358,8 +366,6 @@ def relabel_genome_data(output_dir, table):
 
 def main(argv=None):
     """Standalone entry point: relabel an already-downloaded genome_data/."""
-    import pandas as pd
-
     parser = argparse.ArgumentParser(
         prog="python3 -m vmrplus.segments",
         description=(
