@@ -24,14 +24,13 @@ from .segments import (  # noqa: F401 -- re-exported for callers/tests
     UNCLASSIFIED,
     _is_filled,
     _normalize_accession,
-    build_seg_library,
+    build_segment_entries,
     entries_by_row,
     format_summary,
     log_unmatched,
     rename_records,
     resolve_genome_taxon,
     rewrite_fasta_headers,
-    write_seg_library,
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -425,7 +424,7 @@ def refdb(name_protein, taxid, name_family, path, protein_name, min_len, max_len
 
 # _is_filled, GENOME_TAXON_RANKS, UNCLASSIFIED, resolve_genome_taxon and
 # _normalize_accession live in segments.py (imported above), next to the
-# accession parsing that drives seg_library.csv.
+# accession parsing that names the genome FASTA headers.
 
 
 def download_genome_fasta(seq_number, genome_code, taxon, genome_data_dir,
@@ -444,9 +443,9 @@ def download_genome_fasta(seq_number, genome_code, taxon, genome_data_dir,
     where the accession part joins every accession found in the
     'Virus GENBANK accession' field (version suffixes removed) with '-'.
 
-    *seg_lookup* is this row's ``{accession: seg_library entry}`` (see
+    *seg_lookup* is this row's ``{accession: segment entry}`` (see
     segments.py): it lists the codes to fetch and names every FASTA header
-    ``<Family>_<Genus>_vSeg<n>_<Segment>_<Accession.version> <description>``.
+    ``<Family>_<Genus>_<ICTV_ID>_<Segment>_<Accession.version> <description>``.
 
     Existing files are not downloaded again (allows resuming), but their
     headers are rewritten from *seg_lookup*. Returns ``(output_path,
@@ -524,8 +523,8 @@ def download_genome_fasta(seq_number, genome_code, taxon, genome_data_dir,
                 time.sleep(_retry_delay(attempt))
                 continue
 
-            # Family_Genus_vSegN_Segment_Accession.version <description>,
-            # matched to seg_library.csv by accession (version ignored).
+            # Family_Genus_ICTVID_Segment_Accession.version <description>,
+            # matched to the VMR row's codes by accession (version ignored).
             saved, unmatched = rename_records(records, seg_lookup)
             log_unmatched(prefix, unmatched, seg_lookup, saved)
 
@@ -573,9 +572,8 @@ def download_all_genomes(tableX, final_dir, num_threads):
     (Suborder … Realm) → Genus and below, and only 'unclassified' for a row
     with no taxonomy at all.
 
-    Before downloading, writes seg_library.csv (one row per GenBank code,
-    sample id vSeg<counter>) and uses it to name every FASTA header -- see
-    segments.py.
+    Every FASTA header is named after the row's ICTV_ID, segment label and
+    accession -- see segments.py.
 
     Runs in parallel when num_threads is set (reusing the -thr pool and the
     NCBI rate limiter), otherwise sequentially.
@@ -584,8 +582,7 @@ def download_all_genomes(tableX, final_dir, num_threads):
     os.makedirs(genome_data_dir, exist_ok=True)
     logging.info(f"[genome] Downloading viral genomes into {genome_data_dir} ...")
 
-    seg_entries = build_seg_library(tableX)
-    write_seg_library(seg_entries, final_dir)
+    seg_entries = build_segment_entries(tableX)
     seg_by_row = entries_by_row(seg_entries)
 
     tasks = []

@@ -1,24 +1,22 @@
-"""Per-sample segment library for the -gb genome dataset.
+"""Per-sample FASTA headers for the -gb genome dataset.
 
 Segmented genomes are downloaded as several GenBank records whose headers say
-nothing about which VMR sample they belong to. This module gives every VMR/MSL
-row a sample id (``vSeg<n>``, sharing the 1-based counter of the
-``VMR<n:07d>_*.fasta`` file names), splits its 'Virus GENBANK accession' cell
-into one (segment, accession) pair per code, and records them in
-``seg_library.csv``::
+nothing about which VMR sample they belong to. This module splits every
+VMR/MSL row's 'Virus GENBANK accession' cell into one (segment, accession)
+pair per code and names each FASTA header written to ``genome_data/`` after
+the row's ``ICTV_ID``::
 
-    vSeg_ID;Segment;Family;Genus;Species;GenBank
-    vSeg1;Seg1;Sedoreoviridae;Orbivirus;Orbivirus betamitchellense;KF234259
+    >Sedoreoviridae_Orbivirus_ICTV19991234_Seg1_KF234259.1 Wallal virus isolate 927 segment 1, complete sequence
 
-The same table drives the FASTA headers written to ``genome_data/``::
-
-    >Sedoreoviridae_Orbivirus_vSeg1_Seg1_KF234259.1 Wallal virus isolate 927 segment 1, complete sequence
+ICTV_ID identifies the species, so isolates of one species share it; the
+accession keeps their headers apart, and the ``VMR<n:07d>_*.fasta`` file name
+still identifies the row. A row with no ICTV_ID uses ``VMR<n:07d>`` instead.
 
 Family is the row's Family, else Subfamily, else the nearest rank it carries
-(``resolve_genome_taxon``); records are matched to the table by accession,
+(``resolve_genome_taxon``); records are matched to the row by accession,
 ignoring the version. Rewriting a header that was already rewritten (or that
-carries the older ``<taxon>_<genus>_<acc>`` prefix) gives the same result, so
-the rewrite is idempotent.
+carries the older ``vSeg<n>`` or ``<taxon>_<genus>_<acc>`` forms) gives the
+same result, so the rewrite is idempotent.
 
 Can also be run on its own against a finished output directory (no network)::
 
@@ -26,7 +24,6 @@ Can also be run on its own against a finished output directory (no network)::
 """
 
 import argparse
-import csv
 import logging
 import os
 import re
@@ -34,12 +31,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pandas as pd
-
-SEG_LIBRARY_NAME = "seg_library.csv"
-SEG_COLUMNS = ("vSeg_ID", "Segment", "Family", "Genus", "Species", "GenBank")
-
 ACCESSION_COLUMN = "Virus GENBANK accession"
+ICTV_ID_COLUMN = "ICTV_ID"
 GENOME_DATA_DIRNAME = "genome_data"
 
 # VMR/MSL taxonomy columns tried, in order, to name the taxon a genome is
@@ -155,28 +148,28 @@ def accession_base(accession):
     return accession.split('.')[0]
 
 
-def build_seg_library(table):
+def build_segment_entries(table):
     """
     One entry per GenBank code of every row of *table* (a DataFrame read from
     the VMR/MSL CSV), in table order.
 
-    Each entry is a dict with the SEG_COLUMNS plus ``n``, the 1-based row
-    counter shared with the ``VMR<n:07d>`` genome file names.
+    Each entry is ``{n, ICTV_ID, Segment, Family, Genus, GenBank}``; ``n`` is
+    the 1-based row counter shared with the ``VMR<n:07d>`` genome file names,
+    and also stands in for an empty ICTV_ID.
     """
     entries = []
     for i in range(len(table)):
         row = table.iloc[i]
         n = i + 1
         genus = row.get("Genus", "")
-        species = row.get("Species", "")
+        ictv_id = row.get(ICTV_ID_COLUMN, "")
         for segment, accession in parse_accession_field(row.get(ACCESSION_COLUMN, "")):
             entries.append({
                 "n": n,
-                "vSeg_ID": f"vSeg{n}",
+                "ICTV_ID": ictv_id.strip() if _is_filled(ictv_id) else f"VMR{n:07d}",
                 "Segment": segment,
                 "Family": resolve_genome_taxon(row),
                 "Genus": genus.strip() if _is_filled(genus) else UNCLASSIFIED,
-                "Species": species.strip() if _is_filled(species) else "",
                 "GenBank": accession,
             })
     return entries
@@ -191,31 +184,14 @@ def entries_by_row(entries):
     return by_row
 
 
-def write_seg_library(entries, output_dir):
-    """
-    Write ``seg_library.csv`` (';'-delimited) and its ``seg_library.xlsx``
-    twin, like hmm_library.csv/.xlsx. Returns the CSV path.
-    """
-    path = Path(output_dir) / SEG_LIBRARY_NAME
-    with open(path, "w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=SEG_COLUMNS, delimiter=';',
-                                extrasaction='ignore')
-        writer.writeheader()
-        writer.writerows(entries)
-
-    xlsx_path = path.with_suffix(".xlsx")
-    pd.DataFrame(entries, columns=SEG_COLUMNS).to_excel(xlsx_path, index=False)
-    logging.info(f"[segments] Wrote {path.name} / {xlsx_path.name} ({len(entries)} code(s)).")
-    return path
-
-
 def _record_accession(record_id, lookup):
     """
     Find the table accession a FASTA record id refers to, or None.
 
     The id is a bare ``KF234259.1`` when fresh from NCBI, or ends with it
-    once prefixed (``Sedoreoviridae_Orbivirus_vSeg1_Seg1_KF234259.1``, or the
-    older ``Sedoreoviridae_Orbivirus_KF234259.1``). The last '_' field is
+    once prefixed (``Sedoreoviridae_Orbivirus_ICTV19991234_Seg1_KF234259.1``,
+    or the older ``..._vSeg1_Seg1_KF234259.1`` and
+    ``Sedoreoviridae_Orbivirus_KF234259.1``). The last '_' field is
     tried first, then the last two (RefSeq-style ``NC_001234.1``).
     """
     fields = record_id.split('_')
@@ -239,7 +215,7 @@ def seg_header(entry, record_id, description):
     versioned = record_id[start:] if start >= 0 else record_id
     new_id = "_".join([
         _underscored(entry["Family"]), _underscored(entry["Genus"]),
-        entry["vSeg_ID"], entry["Segment"], versioned,
+        _underscored(entry["ICTV_ID"]), entry["Segment"], versioned,
     ])
     original = description
     if original.startswith(record_id):
@@ -311,14 +287,14 @@ def log_unmatched(prefix, unmatched, lookup, saved):
     """Warn about records with no table row and table codes with no record."""
     for record_id in unmatched:
         logging.warning(
-            f"[segments] {prefix}: sequence {record_id} has no row in "
-            f"{SEG_LIBRARY_NAME}; header left unchanged."
+            f"[segments] {prefix}: sequence {record_id} matches no code of its "
+            f"VMR row; header left unchanged."
         )
     for base, entry in sorted(lookup.items()):
         if base not in saved:
             logging.warning(
                 f"[segments] {prefix}: code {entry['GenBank']} "
-                f"({entry['vSeg_ID']} {entry['Segment']}) was not downloaded."
+                f"({entry['ICTV_ID']} {entry['Segment']}) was not downloaded."
             )
 
 
@@ -334,12 +310,10 @@ def format_summary(samples, segments, failed):
 
 def relabel_genome_data(output_dir, table):
     """
-    Rebuild ``seg_library.csv`` and rewrite every header under
-    ``genome_data/`` from *table*. No network access. Returns
-    ``(samples, segments, failed)``.
+    Rewrite every header under ``genome_data/`` from *table*. No network
+    access. Returns ``(samples, segments, failed)``.
     """
-    entries = build_seg_library(table)
-    write_seg_library(entries, output_dir)
+    entries = build_segment_entries(table)
     by_row = entries_by_row(entries)
 
     saved = {}
@@ -366,11 +340,13 @@ def relabel_genome_data(output_dir, table):
 
 def main(argv=None):
     """Standalone entry point: relabel an already-downloaded genome_data/."""
+    import pandas as pd
+
     parser = argparse.ArgumentParser(
         prog="python3 -m vmrplus.segments",
         description=(
-            "Write seg_library.csv and rewrite the genome_data/ FASTA headers "
-            "of a VMR+ output directory as Family_Genus_vSegN_Segment_Accession."
+            "Rewrite the genome_data/ FASTA headers of a VMR+ output directory "
+            "as Family_Genus_ICTVID_Segment_Accession."
         ),
     )
     parser.add_argument("output_dir", help="VMR+ output directory (holds genome_data/)")

@@ -279,7 +279,7 @@ class TestResolveGenomeTaxon:
         assert ncbi.resolve_genome_taxon(row) == "Caudoviricetes"
 
 
-# ── segments.py (seg_library.csv, -gb headers) ───────────────────────────
+# ── segments.py (-gb genome FASTA headers) ──────────────────────────────
 WALLAL_CELL = ("Seg1: KF234259; Seg2: KF234260; Seg3: KF234261; Seg4: KF234262; "
                "Seg5: KF234263; Seg6: KF234264; Seg7: KF234265; Seg8: KF234266; "
                "Seg9: KF234267; Seg10: KF234268")
@@ -327,51 +327,47 @@ class TestParseAccessionField:
 def _wallal_table():
     return pd.DataFrame([
         {"Family": None, "Subfamily": None, "Class": "Caudoviricetes",
-         "Genus": "Actaeavirus", "Species": "Actaeavirus x",
+         "Genus": "Actaeavirus", "Species": "Actaeavirus x", "ICTV_ID": "ICTV20230001",
          "Virus GENBANK accession": "OR420743"},
         {"Family": "Sedoreoviridae", "Subfamily": None, "Genus": "Orbivirus",
-         "Species": "Orbivirus betamitchellense",
+         "Species": "Orbivirus betamitchellense", "ICTV_ID": " ICTV19991234 ",
          "Virus GENBANK accession": WALLAL_CELL},
         {"Family": None, "Subfamily": "Weiservirinae", "Genus": "Unicornvirus",
-         "Species": "Unicornvirus y", "Virus GENBANK accession": None},
+         "Species": "Unicornvirus y", "ICTV_ID": None, "Virus GENBANK accession": None},
+        {"Family": "Geminiviridae", "Genus": None, "Species": "Begomovirus z",
+         "ICTV_ID": None, "Virus GENBANK accession": "DNA-A: KY449275"},
     ])
 
 
-class TestBuildSegLibrary:
-    def test_one_row_per_code_sharing_the_sample_id(self):
-        entries = segments.build_seg_library(_wallal_table())
-        wallal = [e for e in entries if e["vSeg_ID"] == "vSeg2"]
+class TestBuildSegmentEntries:
+    def test_one_entry_per_code_sharing_the_ictv_id(self):
+        entries = segments.build_segment_entries(_wallal_table())
+        wallal = [e for e in entries if e["n"] == 2]
         assert len(wallal) == 10
         assert wallal[0] == {
-            "n": 2, "vSeg_ID": "vSeg2", "Segment": "Seg1", "Family": "Sedoreoviridae",
-            "Genus": "Orbivirus", "Species": "Orbivirus betamitchellense",
-            "GenBank": "KF234259"}
+            "n": 2, "ICTV_ID": "ICTV19991234", "Segment": "Seg1",
+            "Family": "Sedoreoviridae", "Genus": "Orbivirus", "GenBank": "KF234259"}
 
     def test_family_falls_back_to_nearest_rank(self):
-        entries = segments.build_seg_library(_wallal_table())
+        entries = segments.build_segment_entries(_wallal_table())
         assert entries[0]["Family"] == "Caudoviricetes"
         assert entries[0]["Segment"] == "Seg1"
 
-    def test_rows_without_codes_add_no_lines(self):
-        entries = segments.build_seg_library(_wallal_table())
-        assert {e["vSeg_ID"] for e in entries} == {"vSeg1", "vSeg2"}
+    def test_rows_without_codes_add_no_entries(self):
+        entries = segments.build_segment_entries(_wallal_table())
+        assert {e["n"] for e in entries} == {1, 2, 4}
 
-
-def test_write_seg_library_writes_csv_and_xlsx(tmp_path):
-    entries = segments.build_seg_library(_wallal_table())
-    csv_path = segments.write_seg_library(entries, tmp_path)
-    xlsx = pd.read_excel(tmp_path / "seg_library.xlsx", dtype=str)
-    assert list(xlsx.columns) == list(segments.SEG_COLUMNS)
-    assert len(xlsx) == len(entries) == len(csv_path.read_text().splitlines()) - 1
-    assert xlsx.iloc[1].tolist() == ["vSeg2", "Seg1", "Sedoreoviridae", "Orbivirus",
-                                     "Orbivirus betamitchellense", "KF234259"]
+    def test_missing_ictv_id_falls_back_to_row_id(self):
+        entry = segments.build_segment_entries(_wallal_table())[-1]
+        assert entry["ICTV_ID"] == "VMR0000004"
+        assert entry["Genus"] == "unclassified" and entry["Segment"] == "DNA-A"
 
 
 class TestSegHeaders:
-    ENTRY = {"vSeg_ID": "vSeg1", "Segment": "Seg1", "Family": "Sedoreoviridae",
+    ENTRY = {"ICTV_ID": "ICTV19991234", "Segment": "Seg1", "Family": "Sedoreoviridae",
              "Genus": "Orbivirus", "GenBank": "KF234259"}
     TITLE = "KF234259.1 Wallal virus isolate 927 segment 1, complete sequence"
-    EXPECTED = ("Sedoreoviridae_Orbivirus_vSeg1_Seg1_KF234259.1 "
+    EXPECTED = ("Sedoreoviridae_Orbivirus_ICTV19991234_Seg1_KF234259.1 "
                 "Wallal virus isolate 927 segment 1, complete sequence")
 
     def test_header_keeps_version_and_description(self):
@@ -381,7 +377,7 @@ class TestSegHeaders:
     def test_names_with_spaces_are_underscored(self):
         entry = dict(self.ENTRY, Family="Some Family", Genus="Some Genus")
         new_id, _ = segments.seg_header(entry, "KF234259.1", self.TITLE)
-        assert new_id == "Some_Family_Some_Genus_vSeg1_Seg1_KF234259.1"
+        assert new_id == "Some_Family_Some_Genus_ICTV19991234_Seg1_KF234259.1"
 
     def test_rewrite_is_idempotent_and_upgrades_old_headers(self, tmp_path):
         lookup = {"KF234259": self.ENTRY}
@@ -394,6 +390,12 @@ class TestSegHeaders:
         segments.rewrite_fasta_headers(fasta, lookup)
         assert fasta.read_text() == once
 
+    def test_vseg_header_is_upgraded_to_ictv_id(self, tmp_path):
+        fasta = tmp_path / "VMR0000001_KF234259.fasta"
+        fasta.write_text(f">Sedoreoviridae_Orbivirus_vSeg1_Seg1_{self.TITLE}\nACGT\n")
+        segments.rewrite_fasta_headers(fasta, {"KF234259": self.ENTRY})
+        assert fasta.read_text() == f">{self.EXPECTED}\nACGT\n"
+
     def test_unknown_record_is_left_alone(self, tmp_path):
         fasta = tmp_path / "x.fasta"
         fasta.write_text(">ZZ999999.1 other\nACGT\n")
@@ -401,6 +403,18 @@ class TestSegHeaders:
             fasta, {"KF234259": self.ENTRY})
         assert matched == set() and unmatched == ["ZZ999999.1"]
         assert fasta.read_text() == ">ZZ999999.1 other\nACGT\n"
+
+
+def test_relabel_genome_data_writes_no_table(tmp_path):
+    fam = tmp_path / "genome_data" / "Sedoreoviridae"
+    fam.mkdir(parents=True)
+    (fam / "VMR0000002_KF234259.fasta").write_text(
+        ">KF234259.1 Wallal virus isolate 927 segment 1, complete sequence\nACGT\n")
+    samples, segs, failed = segments.relabel_genome_data(tmp_path, _wallal_table())
+    assert (samples, segs) == (1, 1)
+    assert not list(tmp_path.glob("seg_library*"))
+    assert (fam / "VMR0000002_KF234259.fasta").read_text().startswith(
+        ">Sedoreoviridae_Orbivirus_ICTV19991234_Seg1_KF234259.1 Wallal")
 
 
 # ── excel_hyperlink_formula ────────────────────────────────────────────────
