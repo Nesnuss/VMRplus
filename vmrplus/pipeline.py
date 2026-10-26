@@ -462,7 +462,7 @@ def main(args):
     elif args.v:
         print(f"""
 VMR Program version {version} - set 2026
-(c) 2024. Rafael Santos da Silva & Arthur Gruber
+(c) 2026. Rafael Santos da Silva & Arthur Gruber
 """)
 
     else:
