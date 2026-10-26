@@ -4,25 +4,37 @@ Runs right after ``build_hmms_repository`` (see repository.py) and writes,
 into the header of every ``HMMs_repository/*/vHMM_<n>_<C|D>.hmm``::
 
     TAXON   <family or subfamily>      hmm_library.csv, 'Taxon'
-    GENUS   <genus>                    hmm_library.csv, 'Genus' (discriminative only)
     TXID    <taxid of the TAXON>       terms table, 'tax_id' (matched on 'Name')
+    PROTEIN <marker protein>           hmm_library.csv, 'Protein'
+    RANGE   Conservative|Discriminative  hmm_library.csv, 'Model type'
+    TYPE    Full-length|Short          tabajara -fl yes|no (default no)
+
+Discriminative models get a second block, after a blank line, with the
+TAXON/TXID/PROTEIN fields for their genus (RANGE/TYPE describe the model, so
+they are written once, in the first block)::
+
+    TAXON   <genus>                    hmm_library.csv, 'Genus'
+    TXID    <taxid of the genus>       hmm_library.csv, 'Genus TxID' (else the
+                                       terms table, else NCBI Taxonomy)
     PROTEIN <marker protein>           hmm_library.csv, 'Protein'
 
 The fields go right after the ``CUTOFF SCORE`` line (or ``STATS LOCAL
-FORWARD`` when there is none), always in that order; the rest of the file is
-left untouched. Existing fields are replaced, so re-running is idempotent.
+FORWARD`` when there is none), always in that order, followed by a blank
+line; the rest of the file is left untouched. Existing fields are replaced, so re-running is idempotent.
 
 HMMER 3.4 ignores unknown header tags; the annotated set is still checked with
 ``hmmstat``/``hmmpress`` and, if HMMER rejects the tags, the models are
 rewritten with the metadata packed into ``DESC`` instead
-(``DESC  TAXON=...;GENUS=...;TXID=...;PROTEIN=...``).
+(``DESC  TAXON=...;TXID=...;PROTEIN=...;RANGE=...;TYPE=...``, blocks joined
+with ``|``).
 
-A model missing from the library, or whose taxon has no taxid, is logged and
-skipped -- the run carries on.
+Every model gets RANGE/TYPE. One whose taxon has no taxid is written without
+the TXID line; one missing from the library gets RANGE/TYPE only (RANGE from
+its repository subdirectory). Both are logged -- the run carries on.
 
 Can also be run on its own against a finished output directory::
 
-    python3 -m vmrplus.annotation <output_dir> <terms.csv>
+    python3 -m vmrplus.annotation <output_dir> <terms.csv> [--fl yes|no]
 """
 
 import argparse
@@ -35,6 +47,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from .config import TABAJARA_FULL_LENGTH_DEFAULT
 from .repository import (
     ID_COLUMN,
     LIBRARY_CSV_NAME,
@@ -45,11 +58,22 @@ from .repository import (
 
 TAXON_COLUMN = "Taxon"
 GENUS_COLUMN = "Genus"
+GENUS_TXID_COLUMN = "Genus TxID"
 PROTEIN_COLUMN = "Protein"
 TERMS_NAME_COLUMN = "Name"
 TERMS_TAXID_COLUMN = "tax_id"
 
-METADATA_TAGS = ("TAXON", "GENUS", "TXID", "PROTEIN")
+# GENUS is no longer written, but is still stripped from older annotations.
+METADATA_TAGS = ("TAXON", "GENUS", "TXID", "PROTEIN", "RANGE", "TYPE")
+
+# 'Model type' (lowercased) -> RANGE value.
+RANGE_LABELS = {'conservative': 'Conservative', 'discriminative': 'Discriminative'}
+
+# tabajara -fl value -> TYPE value.
+TYPE_LABELS = {'yes': 'Full-length', 'no': 'Short'}
+
+# Entry in a fields list that separates two blocks.
+BLOCK_SEPARATOR = None
 
 # Header lines the fields are anchored to, in order of preference.
 ANCHORS = ("CUTOFF SCORE", "STATS LOCAL FORWARD")
@@ -93,6 +117,13 @@ def load_library(library_csv):
         }
 
 
+def _normalise_taxid(taxid):
+    """pandas may have written integer taxids as floats ("12058.0")."""
+    if taxid.endswith(".0") and taxid[:-2].isdigit():
+        return taxid[:-2]
+    return taxid
+
+
 def load_taxids(terms_csv):
     """Read the terms table into ``{Name: tax_id}`` (both stripped)."""
     taxids = {}
@@ -102,30 +133,65 @@ def load_taxids(terms_csv):
             taxid = _clean(row.get(TERMS_TAXID_COLUMN))
             if not name or not taxid:
                 continue
-            # pandas may have written integer taxids as floats ("12058.0").
-            if taxid.endswith(".0") and taxid[:-2].isdigit():
-                taxid = taxid[:-2]
-            taxids.setdefault(name, taxid)
+            taxids.setdefault(name, _normalise_taxid(taxid))
     return taxids
 
 
-def build_metadata(row, taxids):
+def _is_discriminative(row):
+    return _clean(row.get(TYPE_COLUMN)).lower() == "discriminative"
+
+
+def genus_taxid(row, taxids, resolver=None):
     """
-    Ordered ``[(tag, value), ...]`` for one library row, or None when the
-    taxon has no taxid. GENUS is included only for discriminative models
-    (conservative rows carry 'Family-wide models' there, not a genus).
+    Taxid of a library row's genus: the 'Genus TxID' column, else the terms
+    table, else ``resolver(genus)`` (an NCBI lookup); '' when unresolved.
+    """
+    genus = _clean(row.get(GENUS_COLUMN))
+    if not genus:
+        return ""
+    taxid = _normalise_taxid(_clean(row.get(GENUS_TXID_COLUMN))) or taxids.get(genus, "")
+    if not taxid and resolver is not None:
+        taxid = _clean(resolver(genus))
+    return taxid
+
+
+def model_fields(model_type, full_length=None):
+    """
+    ``[("RANGE", ...), ("TYPE", ...)]`` for a model type ('conservative' /
+    'discriminative'); ``full_length`` maps that type to its tabajara -fl
+    value (missing -> tabajara's default, 'no').
+    """
+    model_type = _clean(model_type).lower()
+    fl = (full_length or {}).get(model_type, TABAJARA_FULL_LENGTH_DEFAULT)
+    return [("RANGE", RANGE_LABELS.get(model_type, model_type.capitalize())),
+            ("TYPE", TYPE_LABELS.get(fl, TYPE_LABELS[TABAJARA_FULL_LENGTH_DEFAULT]))]
+
+
+def build_metadata(row, taxids, resolver=None, full_length=None):
+    """
+    Ordered ``[(tag, value), ...]`` for one library row. The first block is
+    TAXON/TXID/PROTEIN/RANGE/TYPE (TXID left out when the taxon has no
+    taxid). Discriminative models get a second TAXON/TXID/PROTEIN block for
+    their genus, after a ``BLOCK_SEPARATOR`` (conservative rows carry
+    'Family-wide models' as genus, not a real one). A genus with no taxid
+    keeps its block, without the TXID line.
     """
     taxon = _clean(row.get(TAXON_COLUMN))
     taxid = taxids.get(taxon)
-    if not taxid:
-        return None
 
+    protein = _clean(row.get(PROTEIN_COLUMN))
     fields = [("TAXON", taxon)]
+    if taxid:
+        fields.append(("TXID", taxid))
+    fields.append(("PROTEIN", protein))
+    fields += model_fields(row.get(TYPE_COLUMN), full_length)
     genus = _clean(row.get(GENUS_COLUMN))
-    if _clean(row.get(TYPE_COLUMN)).lower() == "discriminative" and genus:
-        fields.append(("GENUS", genus))
-    fields.append(("TXID", taxid))
-    fields.append(("PROTEIN", _clean(row.get(PROTEIN_COLUMN))))
+    if _is_discriminative(row) and genus:
+        fields += [BLOCK_SEPARATOR, ("TAXON", genus)]
+        gtaxid = genus_taxid(row, taxids, resolver)
+        if gtaxid:
+            fields.append(("TXID", gtaxid))
+        fields.append(("PROTEIN", protein))
     return fields
 
 
@@ -155,16 +221,27 @@ def annotate_hmm_text(text, fields, mode=MODE_TAGS):
         (i for i, line in enumerate(lines) if _tag_of(line) == "HMM"),
         len(lines),
     )
+    # Blank lines go too: the only one a header carries is the separator
+    # written after our fields.
     header = [
         line for line in lines[:header_end]
         if _tag_of(line) not in METADATA_TAGS and not _is_our_desc(line)
+        and line.strip()
     ]
     body = lines[header_end:]
 
     if mode == MODE_DESC:
         # A model holds a single DESC; ours replaces whatever was there.
         header = [line for line in header if _tag_of(line) != "DESC"]
-        packed = ";".join(f"{tag}={value}" for tag, value in fields)
+        blocks = [[]]
+        for field in fields:
+            if field is BLOCK_SEPARATOR:
+                blocks.append([])
+            else:
+                blocks[-1].append(field)
+        packed = "|".join(
+            ";".join(f"{tag}={value}" for tag, value in block) for block in blocks
+        )
         # DESC belongs right after NAME (and ACC, when present).
         position = max(
             (i + 1 for i, line in enumerate(header) if _tag_of(line) in ("NAME", "ACC")),
@@ -183,7 +260,11 @@ def annotate_hmm_text(text, fields, mode=MODE_TAGS):
     else:
         return None
 
-    new_lines = [f"{tag:<7} {value}{newline}" for tag, value in fields]
+    # A blank line closes the block (HMMER 3.4 accepts it in the header).
+    new_lines = [
+        newline if field is BLOCK_SEPARATOR else f"{field[0]:<7} {field[1]}{newline}"
+        for field in fields
+    ] + [newline]
     return "".join(header[:position + 1] + new_lines + header[position + 1:] + body)
 
 
@@ -235,9 +316,14 @@ def _annotate_all(models, mode):
     return written
 
 
-def annotate_hmms_repository(output_base_dir, terms_csv, library_csv=None):
+def annotate_hmms_repository(output_base_dir, terms_csv, library_csv=None,
+                             full_length=None):
     """
-    Write TAXON/GENUS/TXID/PROTEIN into every model in ``HMMs_repository/``.
+    Write TAXON/TXID/PROTEIN/RANGE/TYPE into every model in ``HMMs_repository/``
+    (plus a genus block for discriminative models).
+
+    ``full_length`` maps 'conservative' / 'discriminative' to the tabajara
+    -fl value of that run ('yes'/'no'; missing -> 'no'), which sets TYPE.
 
     Returns
     -------
@@ -261,27 +347,34 @@ def annotate_hmms_repository(output_base_dir, terms_csv, library_csv=None):
 
     library = load_library(library_path)
     taxids = load_taxids(terms_csv)
+    resolver = _ncbi_genus_resolver()
     logging.info(
-        f"[annotate] Writing TAXON/GENUS/TXID/PROTEIN into {repo_dir}, "
-        f"guided by {library_path.name} and {Path(terms_csv).name}"
+        f"[annotate] Writing TAXON/TXID/PROTEIN/RANGE/TYPE into {repo_dir}, "
+        f"guided by {library_path.name} and {Path(terms_csv).name} "
+        f"(TYPE: conservative={model_fields('conservative', full_length)[1][1]}, "
+        f"discriminative={model_fields('discriminative', full_length)[1][1]})"
     )
 
     models = []
     for path in sorted(repo_dir.glob("*/*.hmm")):
         row = next((library[k] for k in _library_keys(path.stem) if k in library), None)
         if row is None:
+            # RANGE/TYPE still go in, the type taken from the subdirectory.
             counts['no_library_row'] += 1
-            logging.warning(f"[annotate] {path.name}: no row in {library_path.name}; skipped.")
-            continue
-
-        fields = build_metadata(row, taxids)
-        if fields is None:
-            counts['no_txid'] += 1
             logging.warning(
-                f"[annotate] {path.name}: no tax_id for taxon "
-                f"{_clean(row.get(TAXON_COLUMN))!r} in {Path(terms_csv).name}; skipped."
+                f"[annotate] {path.name}: no row in {library_path.name}; "
+                f"writing RANGE/TYPE only."
             )
-            continue
+            fields = model_fields(path.parent.name, full_length)
+        else:
+            fields = build_metadata(row, taxids, resolver, full_length)
+            if fields[1][0] != "TXID":
+                counts['no_txid'] += 1
+                logging.warning(
+                    f"[annotate] {path.name}: no tax_id for taxon "
+                    f"{_clean(row.get(TAXON_COLUMN))!r} in {Path(terms_csv).name}; "
+                    f"written without TXID."
+                )
 
         text = path.read_text(encoding='utf-8')
         if annotate_hmm_text(text, fields) is None:
@@ -290,6 +383,13 @@ def annotate_hmms_repository(output_base_dir, terms_csv, library_csv=None):
                 f"[annotate] {path.name}: no {' / '.join(ANCHORS)} line; skipped."
             )
             continue
+        genus_block = (fields[fields.index(BLOCK_SEPARATOR) + 1:]
+                       if BLOCK_SEPARATOR in fields else [])
+        if row is not None and genus_block and all(tag != "TXID" for tag, _ in genus_block):
+            logging.warning(
+                f"[annotate] {path.name}: no taxid for genus "
+                f"{_clean(row.get(GENUS_COLUMN))!r}; genus block written without TXID."
+            )
         models.append((path, text, fields))
 
     written = _annotate_all(models, MODE_TAGS)
@@ -315,6 +415,17 @@ def annotate_hmms_repository(output_base_dir, terms_csv, library_csv=None):
     return counts
 
 
+def _ncbi_genus_resolver():
+    """
+    Cached NCBI Taxonomy lookup for genera missing a 'Genus TxID' (libraries
+    written before that column existed). Imported lazily: it needs network.
+    """
+    from .ncbi import fetch_taxid_by_name
+
+    cache = {}
+    return lambda name: fetch_taxid_by_name(name, cache=cache)
+
+
 def _format_summary(counts):
     """Render the annotation tally reported in the pipeline log."""
     lines = [
@@ -322,9 +433,11 @@ def _format_summary(counts):
         f"  annotated      : {counts['annotated']:>7} model(s) (mode: {counts['mode']})",
     ]
     if counts['no_library_row']:
-        lines.append(f"  WARNING: {counts['no_library_row']} model(s) not in the library")
+        lines.append(f"  WARNING: {counts['no_library_row']} model(s) not in the library "
+                     f"(RANGE/TYPE only)")
     if counts['no_txid']:
-        lines.append(f"  WARNING: {counts['no_txid']} model(s) with no tax_id for their taxon")
+        lines.append(f"  WARNING: {counts['no_txid']} model(s) with no tax_id for their taxon "
+                     f"(written without TXID)")
     if counts['no_anchor']:
         lines.append(f"  WARNING: {counts['no_anchor']} model(s) with no anchor line")
     return "\n".join(lines)
@@ -335,7 +448,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="python3 -m vmrplus.annotation",
         description=(
-            "Write TAXON/GENUS/TXID/PROTEIN into the headers of a VMR+ output "
+            "Write TAXON/TXID/PROTEIN/RANGE/TYPE (plus a genus block for "
+            "discriminative models) into the headers of a VMR+ output "
             "directory's HMMs_repository/ models."
         ),
     )
@@ -343,12 +457,22 @@ def main(argv=None):
                         help="VMR+ output directory (holds hmm_library.csv and HMMs_repository/)")
     parser.add_argument("terms_csv",
                         help="terms table as ';'-delimited CSV (columns Name, tax_id)")
+    parser.add_argument("--fl", choices=("yes", "no"),
+                        help="tabajara -fl used in both runs (sets TYPE); default no")
+    parser.add_argument("--fl-con", choices=("yes", "no"),
+                        help="tabajara -fl of the conservative run (overrides --fl)")
+    parser.add_argument("--fl-dis", choices=("yes", "no"),
+                        help="tabajara -fl of the discriminative run (overrides --fl)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                         format="%(levelname)s %(message)s")
 
-    counts = annotate_hmms_repository(args.output_dir, args.terms_csv)
+    default = args.fl or TABAJARA_FULL_LENGTH_DEFAULT
+    full_length = {'conservative': args.fl_con or default,
+                   'discriminative': args.fl_dis or default}
+    counts = annotate_hmms_repository(args.output_dir, args.terms_csv,
+                                      full_length=full_length)
     return 0 if counts['annotated'] else 1
 
 

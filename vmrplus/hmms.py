@@ -114,6 +114,7 @@ def collect_and_rename_hmms(markers_dir, output_base_dir):
                         '# of sequences': meta['NSEQ'],
                         'Cutoff score': meta['CUTOFF_SCORE'],
                         'TxID': family_txid,
+                        'Genus TxID': '',
                         'Original_file': hmm_file.name,
                     })
 
@@ -128,6 +129,9 @@ def collect_and_rename_hmms(markers_dir, output_base_dir):
                     genus_valid = genus_path / "valid_HMMs"
                     if not genus_valid.is_dir():
                         continue
+
+                    # Fetch TaxID once per genus (shares the family cache)
+                    genus_txid = fetch_taxid_by_name(genus_name, cache=taxid_cache)
 
                     for hmm_file in sorted(genus_valid.glob("*.hmm")):
                         counter += 1
@@ -151,6 +155,7 @@ def collect_and_rename_hmms(markers_dir, output_base_dir):
                             '# of sequences': meta['NSEQ'],
                             'Cutoff score': meta['CUTOFF_SCORE'],
                             'TxID': family_txid,
+                            'Genus TxID': genus_txid,
                             'Original_file': hmm_file.name,
                         })
 
@@ -178,7 +183,7 @@ def generate_hmm_traceability_report(traceability, output_base_dir):
 
     Columns:
         vHMM_ID, Taxon, Genus, Protein, Model type, Length,
-        # of sequences, TxID, Original_file
+        # of sequences, TxID, Genus TxID, Original_file
 
     The 'Cutoff score' column is included ONLY when at least one HMM
     file contains a CUTOFF SCORE value; otherwise it is omitted entirely.
@@ -196,7 +201,7 @@ def generate_hmm_traceability_report(traceability, output_base_dir):
     if has_cutoff:
         columns.append('Cutoff score')
 
-    columns.extend(['TxID', 'Original_file'])
+    columns.extend(['TxID', 'Genus TxID', 'Original_file'])
 
     report_csv = os.path.join(output_base_dir, "hmm_library.csv")
 

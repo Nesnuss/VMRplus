@@ -86,6 +86,23 @@ TABAJARA_SINGLE_SEQ_PARAMS = {
     'sr': 'yes',
 }
 
+# tabajara.pl's own default for -fl/-full_length (not part of the defaults
+# above, so the generated tabajara.conf only carries it when the user sets it).
+TABAJARA_FULL_LENGTH_DEFAULT = 'no'
+
+
+def resolve_full_length(params):
+    """
+    The -fl value tabajara.pl actually uses for a parameters dict.
+
+    Mirrors tabajara.pl: 'fl' wins over 'full_length', the value is
+    case-insensitive, and anything other than yes/no falls back to 'no'.
+    """
+    params = params or {}
+    value = params.get('fl', params.get('full_length', TABAJARA_FULL_LENGTH_DEFAULT))
+    value = str(value).strip().lower()
+    return value if value in ('yes', 'no') else TABAJARA_FULL_LENGTH_DEFAULT
+
 # Human-readable description of each tabajara parameter, used to comment the
 # generated config template. Keys missing from this map are still written out,
 # just without a comment line.
@@ -101,6 +118,8 @@ TABAJARA_PARAM_DESCRIPTIONS = {
     'mb': 'Maximum block size',
     'gs': 'Gap_sequence <decimal>',
     'md': 'Maximum_distance <integer>',
+    'fl': 'Full_length: use full-length sequences (yes/no, tabajara default no); '
+          'written to the HMMs as TYPE Full-length / Short',
 }
 
 # Order in which the parameters are written to the config template; any key not

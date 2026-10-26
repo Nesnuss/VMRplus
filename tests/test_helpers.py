@@ -357,6 +357,16 @@ class TestBuildSegLibrary:
         assert {e["vSeg_ID"] for e in entries} == {"vSeg1", "vSeg2"}
 
 
+def test_write_seg_library_writes_csv_and_xlsx(tmp_path):
+    entries = segments.build_seg_library(_wallal_table())
+    csv_path = segments.write_seg_library(entries, tmp_path)
+    xlsx = pd.read_excel(tmp_path / "seg_library.xlsx", dtype=str)
+    assert list(xlsx.columns) == list(segments.SEG_COLUMNS)
+    assert len(xlsx) == len(entries) == len(csv_path.read_text().splitlines()) - 1
+    assert xlsx.iloc[1].tolist() == ["vSeg2", "Seg1", "Sedoreoviridae", "Orbivirus",
+                                     "Orbivirus betamitchellense", "KF234259"]
+
+
 class TestSegHeaders:
     ENTRY = {"vSeg_ID": "vSeg1", "Segment": "Seg1", "Family": "Sedoreoviridae",
              "Genus": "Orbivirus", "GenBank": "KF234259"}
@@ -503,6 +513,10 @@ _HMM_HEADER = (
 _CON_FIELDS = [("TAXON", "Adamaviridae"), ("TXID", "3152106"),
                ("PROTEIN", "Replication-associated")]
 
+_DIS_FIELDS = [("TAXON", "Poxviridae"), ("TXID", "10240"), ("PROTEIN", "Rna polymerase"),
+               None,
+               ("TAXON", "Avipoxvirus"), ("TXID", "10260"), ("PROTEIN", "Rna polymerase")]
+
 
 class TestAnnotateHmmText:
     def test_inserts_after_cutoff_score(self):
@@ -511,6 +525,7 @@ class TestAnnotateHmmText:
                 "TAXON   Adamaviridae\n"
                 "TXID    3152106\n"
                 "PROTEIN Replication-associated\n"
+                "\n"
                 "HMM ") in out
 
     def test_falls_back_to_stats_local_forward(self):
@@ -526,7 +541,7 @@ class TestAnnotateHmmText:
         out = annotation.annotate_hmm_text(_HMM_HEADER, _CON_FIELDS)
         for tag, _ in _CON_FIELDS:
             out = "".join(l for l in out.splitlines(True) if not l.startswith(tag))
-        assert out == _HMM_HEADER
+        assert out == _HMM_HEADER.replace("HMM ", "\nHMM ", 1)
 
     def test_idempotent_and_updates(self):
         once = annotation.annotate_hmm_text(_HMM_HEADER, _CON_FIELDS)
@@ -534,7 +549,7 @@ class TestAnnotateHmmText:
         changed = [("TAXON", "X"), ("GENUS", "G"), ("TXID", "1"), ("PROTEIN", "P")]
         out = annotation.annotate_hmm_text(once, changed)
         assert out.count("TAXON") == 1
-        assert "TAXON   X\nGENUS   G\nTXID    1\nPROTEIN P\n" in out
+        assert "TAXON   X\nGENUS   G\nTXID    1\nPROTEIN P\n\nHMM " in out
 
     def test_desc_mode(self):
         out = annotation.annotate_hmm_text(_HMM_HEADER, _CON_FIELDS, mode="desc")
@@ -543,6 +558,34 @@ class TestAnnotateHmmText:
                 ) in out
         assert annotation.annotate_hmm_text(out, _CON_FIELDS, mode="desc") == out
 
+    def test_discriminative_two_blocks(self):
+        out = annotation.annotate_hmm_text(_HMM_HEADER, _DIS_FIELDS)
+        assert ("CUTOFF SCORE\t38.08\n"
+                "TAXON   Poxviridae\n"
+                "TXID    10240\n"
+                "PROTEIN Rna polymerase\n"
+                "\n"
+                "TAXON   Avipoxvirus\n"
+                "TXID    10260\n"
+                "PROTEIN Rna polymerase\n"
+                "\n"
+                "HMM ") in out
+        assert annotation.annotate_hmm_text(out, _DIS_FIELDS) == out
+
+    def test_old_genus_layout_is_rewritten(self):
+        old = [("TAXON", "Poxviridae"), ("GENUS", "Avipoxvirus"),
+               ("TXID", "10240"), ("PROTEIN", "Rna polymerase")]
+        once = annotation.annotate_hmm_text(_HMM_HEADER, old)
+        out = annotation.annotate_hmm_text(once, _DIS_FIELDS)
+        assert "GENUS" not in out
+        assert out == annotation.annotate_hmm_text(_HMM_HEADER, _DIS_FIELDS)
+
+    def test_discriminative_desc_mode(self):
+        out = annotation.annotate_hmm_text(_HMM_HEADER, _DIS_FIELDS, mode="desc")
+        assert ("DESC  TAXON=Poxviridae;TXID=10240;PROTEIN=Rna polymerase|"
+                "TAXON=Avipoxvirus;TXID=10260;PROTEIN=Rna polymerase\n") in out
+        assert annotation.annotate_hmm_text(out, _DIS_FIELDS, mode="desc") == out
+
 
 class TestBuildMetadata:
     TAXIDS = {"Adamaviridae": "3152106"}
@@ -550,19 +593,115 @@ class TestBuildMetadata:
     def test_conservative_has_no_genus(self):
         row = {"Taxon": " Adamaviridae ", "Genus": "Family-wide models",
                "Protein": "Rep", "Model type": "conservative"}
-        tags = [t for t, _ in annotation.build_metadata(row, self.TAXIDS)]
-        assert tags == ["TAXON", "TXID", "PROTEIN"]
+        assert annotation.build_metadata(row, self.TAXIDS) == [
+            ("TAXON", "Adamaviridae"), ("TXID", "3152106"), ("PROTEIN", "Rep"),
+            ("RANGE", "Conservative"), ("TYPE", "Short")]
 
-    def test_discriminative_has_genus(self):
-        row = {"Taxon": "Adamaviridae", "Genus": "Andorivirus",
+    def test_discriminative_has_genus_block(self):
+        row = {"Taxon": "Adamaviridae", "Genus": "Andorivirus", "Genus TxID": "3152140.0",
                "Protein": "Capsid", "Model type": "discriminative"}
         assert annotation.build_metadata(row, self.TAXIDS) == [
-            ("TAXON", "Adamaviridae"), ("GENUS", "Andorivirus"),
-            ("TXID", "3152106"), ("PROTEIN", "Capsid")]
+            ("TAXON", "Adamaviridae"), ("TXID", "3152106"), ("PROTEIN", "Capsid"),
+            ("RANGE", "Discriminative"), ("TYPE", "Short"),
+            None,
+            ("TAXON", "Andorivirus"), ("TXID", "3152140"), ("PROTEIN", "Capsid")]
 
-    def test_missing_taxid_returns_none(self):
+    def test_type_follows_full_length_per_model_type(self):
+        row = {"Taxon": "Adamaviridae", "Genus": "Andorivirus", "Genus TxID": "3152140",
+               "Protein": "Capsid", "Model type": "Discriminative"}
+        fields = annotation.build_metadata(
+            row, self.TAXIDS, full_length={"conservative": "no", "discriminative": "yes"})
+        assert fields[3:5] == [("RANGE", "Discriminative"), ("TYPE", "Full-length")]
+        # RANGE/TYPE only in the first block
+        assert [t for t, _ in fields[6:]] == ["TAXON", "TXID", "PROTEIN"]
+
+    def test_genus_taxid_falls_back_to_resolver(self):
+        row = {"Taxon": "Adamaviridae", "Genus": "Andorivirus",
+               "Protein": "Capsid", "Model type": "discriminative"}
+        fields = annotation.build_metadata(row, self.TAXIDS, resolver=lambda g: "42")
+        assert fields[-2] == ("TXID", "42")
+
+    def test_genus_without_taxid_keeps_block(self):
+        row = {"Taxon": "Adamaviridae", "Genus": "Andorivirus", "Genus TxID": "",
+               "Protein": "Capsid", "Model type": "discriminative"}
+        fields = annotation.build_metadata(row, self.TAXIDS, resolver=lambda g: "")
+        assert fields[5:] == [None, ("TAXON", "Andorivirus"), ("PROTEIN", "Capsid")]
+
+    def test_missing_taxid_keeps_block_without_txid(self):
         row = {"Taxon": "Unknownviridae", "Model type": "conservative"}
-        assert annotation.build_metadata(row, self.TAXIDS) is None
+        assert annotation.build_metadata(row, self.TAXIDS) == [
+            ("TAXON", "Unknownviridae"), ("PROTEIN", ""),
+            ("RANGE", "Conservative"), ("TYPE", "Short")]
+
+
+def test_model_fields_defaults_to_short():
+    assert annotation.model_fields("conservative") == [
+        ("RANGE", "Conservative"), ("TYPE", "Short")]
+    assert annotation.model_fields("discriminative", {"discriminative": "yes"}) == [
+        ("RANGE", "Discriminative"), ("TYPE", "Full-length")]
+
+
+class TestResolveFullLength:
+    def test_default_is_no(self):
+        assert config.resolve_full_length(None) == "no"
+        assert config.resolve_full_length(dict(config.TABAJARA_CON_DEFAULTS)) == "no"
+
+    def test_fl_case_insensitive(self):
+        assert config.resolve_full_length({"fl": " YES "}) == "yes"
+
+    def test_fl_wins_over_full_length(self):
+        assert config.resolve_full_length({"fl": "no", "full_length": "yes"}) == "no"
+        assert config.resolve_full_length({"full_length": "yes"}) == "yes"
+
+    def test_invalid_value_falls_back_to_no(self):
+        assert config.resolve_full_length({"fl": "maybe"}) == "no"
+
+
+_RANGE_FIELDS = _CON_FIELDS + [("RANGE", "Conservative"), ("TYPE", "Short")]
+
+
+def test_annotate_hmm_text_range_type_idempotent_and_upgrades_old():
+    old = annotation.annotate_hmm_text(_HMM_HEADER, _CON_FIELDS)
+    out = annotation.annotate_hmm_text(old, _RANGE_FIELDS)
+    assert ("PROTEIN Replication-associated\n"
+            "RANGE   Conservative\n"
+            "TYPE    Short\n"
+            "\n"
+            "HMM ") in out
+    assert out == annotation.annotate_hmm_text(_HMM_HEADER, _RANGE_FIELDS)
+    assert annotation.annotate_hmm_text(out, _RANGE_FIELDS) == out
+    desc = annotation.annotate_hmm_text(out, _RANGE_FIELDS, mode="desc")
+    assert ";PROTEIN=Replication-associated;RANGE=Conservative;TYPE=Short\n" in desc
+
+
+def test_annotate_repository_writes_range_type_for_every_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(annotation, "_ncbi_genus_resolver", lambda: (lambda name: ""))
+    monkeypatch.setattr(annotation, "_hmmer_accepts", lambda paths: None)
+    repo = tmp_path / "HMMs_repository"
+    for sub, name in (("conservative", "vHMM_1_C"), ("discriminative", "vHMM_2_D"),
+                      ("discriminative", "vHMM_9_D"), ("conservative", "vHMM_3_C")):
+        (repo / sub).mkdir(parents=True, exist_ok=True)
+        (repo / sub / f"{name}.hmm").write_text(_HMM_HEADER)
+    (tmp_path / "hmm_library.csv").write_text(
+        "vHMM_ID;Taxon;Genus;Protein;Model type;Genus TxID\n"
+        "vHMM_1;Adamaviridae;Family-wide models;Rep;conservative;\n"
+        "vHMM_2;Adamaviridae;Andorivirus;Rep;discriminative;3152140\n"
+        "vHMM_3;Unknownviridae;Family-wide models;Rep;conservative;\n")
+    terms = tmp_path / "terms.csv"
+    terms.write_text("tax_id;Name\n3152106;Adamaviridae\n")
+
+    counts = annotation.annotate_hmms_repository(
+        tmp_path, terms, full_length={"discriminative": "yes"})
+    assert counts["annotated"] == 4
+    assert counts["no_library_row"] == 1 and counts["no_txid"] == 1
+    texts = {p.stem: p.read_text() for p in repo.glob("*/*.hmm")}
+    for stem, text in texts.items():
+        assert text.count("RANGE ") == 1 and text.count("TYPE ") == 1, stem
+    assert "RANGE   Conservative\nTYPE    Short\n" in texts["vHMM_1_C"]
+    assert "RANGE   Discriminative\nTYPE    Full-length\n" in texts["vHMM_2_D"]
+    assert "CUTOFF SCORE\t38.08\nRANGE   Discriminative\nTYPE    Full-length\n\n" \
+        in texts["vHMM_9_D"]
+    assert "TXID" not in texts["vHMM_3_C"]
 
 
 def test_library_keys_strip_model_suffix():

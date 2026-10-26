@@ -93,7 +93,7 @@ no Family but a Class of Caudoviricetes therefore lands in
 `genome_data/Caudoviricetes/` rather than a catch-all directory; only a row
 with **every** rank empty falls back to `unclassified/`.
 
-`-gb yes` also writes **`seg_library.csv`** (`vmrplus/segments.py`) — one row
+`-gb yes` also writes **`seg_library.csv`** + `seg_library.xlsx` (`vmrplus/segments.py`) — one row
 per GenBank code: `vSeg_ID;Segment;Family;Genus;Species;GenBank`. `vSeg<n>` is
 the sample id, sharing the 1-based row counter of the `VMR<n:07d>_*.fasta`
 file (Wallal virus = `vSeg9828` ↔ `VMR0009828_...`). `parse_accession_field()`
@@ -151,15 +151,26 @@ Flow (key functions, now spread across the `vmrplus` modules above):
    is idempotent. Also runnable standalone on a finished output directory:
    `python3 -m vmrplus.repository <output_dir>` (`--copy` keeps `hmms/`).
 8. **HMM annotation** — `annotate_hmms_repository()` (`vmrplus/annotation.py`) runs
-   right after step 7 and writes `TAXON` / `GENUS` (discriminative only) / `TXID` /
-   `PROTEIN` lines into each model header, right after `CUTOFF SCORE` (else
-   `STATS LOCAL FORWARD`). `TAXON`/`GENUS`/`PROTEIN` come from `hmm_library.csv`
-   (matched on `vHMM_ID` = filename stem minus `_C`/`_D`); `TXID` from the terms
-   CSV (`Taxon` == `Name` → `tax_id`). Existing fields are replaced (idempotent);
-   unmatched models are logged and skipped. The set is validated with
+   right after step 7 and writes a `TAXON` / `TXID` / `PROTEIN` / `RANGE` / `TYPE`
+   block into each model header, right after `CUTOFF SCORE` (else `STATS LOCAL FORWARD`).
+   `RANGE` = `Conservative`/`Discriminative` (library `Model type`); `TYPE` =
+   `Full-length`/`Short` from the `fl` (or `full_length`) key of that run's
+   `[tabajara_con]`/`[tabajara_dis]` section — `resolve_full_length()` in
+   `vmrplus/config.py` mirrors tabajara.pl (`fl` wins, case-insensitive, default /
+   invalid → `no` → `Short`). Discriminative models get a **second block** after a blank line with
+   `TAXON`/`TXID`/`PROTEIN` for the genus (no `GENUS` tag; `RANGE`/`TYPE` only in
+   the first block; conservative models keep the single block). Every model gets
+   `RANGE`/`TYPE`: a taxon with no `tax_id` is written without `TXID`, a model with
+   no library row gets `RANGE`/`TYPE` only (`RANGE` from its subdirectory). `TAXON`/`PROTEIN` come from `hmm_library.csv` (matched on `vHMM_ID` =
+   filename stem minus `_C`/`_D`); the family `TXID` from the terms CSV
+   (`Taxon` == `Name` → `tax_id`); the genus `TXID` from the library's `Genus TxID`
+   column (resolved from NCBI Taxonomy in `collect_and_rename_hmms()`), else the
+   terms CSV, else an NCBI lookup — unresolved, the genus block omits `TXID`.
+   Existing fields (including an older `GENUS` line) are replaced (idempotent);
+   models with no anchor line are logged and skipped. The set is validated with
    `hmmstat`/`hmmpress` (HMMER 3.4 accepts the extra tags); if rejected, it falls
-   back to `DESC  TAXON=...;GENUS=...;TXID=...;PROTEIN=...`. Standalone:
-   `python3 -m vmrplus.annotation <output_dir> <terms.csv>`.
+   back to `DESC  TAXON=...;TXID=...;PROTEIN=...;RANGE=...;TYPE=...` (blocks joined with `|`). Standalone:
+   `python3 -m vmrplus.annotation <output_dir> <terms.csv> [--fl yes|no] [--fl-con ..] [--fl-dis ..]`.
 
 ## 4. Stack and dependencies
 
@@ -226,9 +237,9 @@ python3 VMRplus.py -v        # version
   `Positive_terms`, `Negative_terms`, `min_length`, `max_length`, `Parent`.
 - **Intermediates** — `;`-delimited CSV; protein FASTA per refdb/marker; BLAST
   databases (`makeblastdb`); aligned FASTA (MAFFT); generated `tabajara.conf`.
-- **Outputs** — `seg_library.csv` + `genome_data/` (only with `-gb yes`, see §3); `.hmm` under `tabajara_family/.../valid_HMMs` and `tabajara_genera/<genus>/...`;
+- **Outputs** — `seg_library.csv/.xlsx` + `genome_data/` (only with `-gb yes`, see §3); `.hmm` under `tabajara_family/.../valid_HMMs` and `tabajara_genera/<genus>/...`;
   `report_hmms.csv/.xlsx` (columns `Family;Genus;Marker;#sequences;#profile HMMs`);
-  `hmm_library.csv/.xlsx` (traceability: `vHMM_ID;Taxon;Genus;Protein;Model type;...`);
+  `hmm_library.csv/.xlsx` (traceability: `vHMM_ID;Taxon;Genus;Protein;Model type;...;TxID;Genus TxID;Original_file`);
   `HMMs_repository/{conservative,discriminative}/` holding the collected models
   (there is no `hmms/` directory in a finished run — see flow step 7);
   final table in the fixed `new_order` order (CSV + `.xlsx`; links are

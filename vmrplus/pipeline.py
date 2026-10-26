@@ -29,6 +29,7 @@ from .config import (
     generate_config_template,
     help_text,
     load_config,
+    resolve_full_length,
     version,
 )
 from .external import blast_plus, make_blast_db, run_mafft, run_tabajara_con, run_tabajara_dis
@@ -950,9 +951,15 @@ VMR Program version {version} - set 2026
         build_hmms_repository(final_dir)
 
         # ── Annotate the HMMs with taxonomy/protein metadata ──────────────
-        # Writes TAXON/GENUS/TXID/PROTEIN into each model header, from
-        # hmm_library.csv and the terms table (Name -> tax_id).
-        annotate_hmms_repository(final_dir, term_csv_file)
+        # Writes TAXON/TXID/PROTEIN/RANGE/TYPE into each model header, from
+        # hmm_library.csv and the terms table (Name -> tax_id). TYPE follows
+        # the -fl each tabajara run used (TABAJARA_SINGLE_SEQ_PARAMS never
+        # touches it, so the config sections hold the effective value).
+        annotate_hmms_repository(
+            final_dir, term_csv_file,
+            full_length={'conservative': resolve_full_length(cfg_tab_con),
+                         'discriminative': resolve_full_length(cfg_tab_dis)},
+        )
 
         final_table_csv = f'VMR+_{new_file.name}'
         table_file = os.path.join(final_dir, final_table_csv)
